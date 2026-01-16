@@ -125,6 +125,44 @@ class IsoFS(FileSystem):
         except KeyError:
             raise ValueError("ISO does not have a Volume Descriptor Set Terminator")
 
+    def parse_boot_record(self):
+        '''Return a parsed version of the Boot Record of the ISO. https://wiki.osdev.org/ISO_9660#The_Boot_Record
+
+        Returns:
+            `dict`: A parsed version of the Boot Record of the ISO, or `None` if the ISO does not have one.
+        '''
+        boot_record = self.get_boot_record()
+        if boot_record is None:
+            return None
+        return {
+            'type_code':              boot_record[0],              # should always be 0
+            'identifier':             boot_record[1:6].decode(),   # should always be "CD001"
+            'version':                boot_record[6],              # should always be 1?
+            'boot_system_identifier': boot_record[7:39].decode(),  # ID of the system which can act on and boot the system from the boot record
+            'boot_identifier':        boot_record[39:71].decode(), # ID of the boot system defined in the rest of this descriptor
+            'boot_system_use':        boot_record[71:],            # Custom - used by the boot system
+        }
+
+    def parse_primary_volume_descriptor(self):
+        '''Return a parsed version of the Primary Volume Descriptor (PVD) of the ISO. https://wiki.osdev.org/ISO_9660#The_Primary_Volume_Descriptor
+
+        Returns:
+            `dict`: A parsed version of the Primary Volume Descriptor (PVD) of the ISO, or `None` if the ISO does not have one.
+        '''
+        pvd = self.get_primary_volume_descriptor()
+        if pvd is None:
+            return None
+        return {
+            'type_code':         pvd[0],              # should always be 1
+            'identifier':        pvd[1:6].decode(),   # should always be "CD001"
+            'version':           pvd[6],              # should always be 1?
+            'offset_7':          pvd[7],              # should always be 0
+            'system_identifier': pvd[8:40].decode(),  # Name of the system that can act upon sectors 0x00-0x0F for the volume
+            'volume_identifier': pvd[40:72].decode(), # Identification (label) of this volume
+            'offsets_72_79':     pvd[72:80],          # should always be all 0s
+            #'volume_space_size': # TODO https://wiki.osdev.org/ISO_9660#The_Primary_Volume_Descriptor
+        }
+
     def __iter__(self):
-        print(self.get_volume_descriptor_set_terminator())
+        print(self.parse_primary_volume_descriptor())
         raise NotImplementedError("TODO NEED TO IMPLEMENT")
