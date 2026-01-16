@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 '''
-Handle ISO (9660) file systems for optical discs
+Handle ISO (9660) file systems for optical discs: https://wiki.osdev.org/ISO_9660
 '''
 
 # NiemaFS imports
@@ -15,15 +15,21 @@ class IsoFS(FileSystem):
         if file_obj is None:
             raise ValueError("file_obj must be a file-like")
         super().__init__(path=path, file_obj=file_obj)
+        self.sector_size = None
+
+    def get_sector_size(self):
+        if self.sector_size is None:
+            raise NotImplementedError("TODO DETERMINE SECTOR SIZE AUTOMATICALLY FROM CD001 AT BEGINNING")
+        return self.sector_size
 
     def read_system_area(self):
-        '''Read the System Area (first 32,768 bytes) of the ISO
+        '''Read the System Area (sectors 0x00-0x0F = first 16 sectors) of the ISO
 
         Returns:
-            `bytes`: The System Area (first 32,768 bytes) of the ISO
+            `bytes`: The System Area (sectors 0x00-0x0F = first 16 sectors) of the ISO
         '''
         self.file.seek(0)
-        return self.file.read(32768)
+        return self.file.read(16 * self.get_sector_size())
 
     def __iter__(self):
         print(self.read_system_area().hex())
