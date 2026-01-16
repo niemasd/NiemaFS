@@ -1,6 +1,9 @@
 # example files
 *.zip
 
+# built files
+docs_html
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
