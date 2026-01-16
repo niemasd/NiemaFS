@@ -7,6 +7,7 @@ Handle ZIP archives
 from niemafs.common import DEFAULT_BUFFER_SIZE, FileSystem
 
 # standard imports
+from datetime import datetime
 from pathlib import Path
 from warnings import warn
 
@@ -19,9 +20,10 @@ class DirFS(FileSystem):
 
     def __iter__(self):
         for curr_path in self.path.rglob('*'):
+            curr_timestamp = datetime.fromtimestamp(curr_path.stat().st_mtime)
             if curr_path.is_dir():
                 curr_data = None
             else:
                 with open(curr_path, mode='rb', buffering=DEFAULT_BUFFER_SIZE) as curr_file:
                     curr_data = curr_file.read()
-            yield (curr_path, curr_data)
+            yield (curr_path, curr_timestamp, curr_data)

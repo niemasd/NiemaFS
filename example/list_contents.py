@@ -4,13 +4,14 @@ List the contents of a given file system
 '''
 
 # imports
-from niemafs import DirFS, open_file, ZipFS
+from niemafs import DirFS, IsoFS, open_file, ZipFS
 from pathlib import Path
 from sys import argv, stderr
 
 # constants
 EXT_TO_CLASS = {
     None:  DirFS,
+    'iso': IsoFS,
     'zip': ZipFS,
 }
 
@@ -35,10 +36,12 @@ if __name__ == "__main__":
     else:
         file_obj = open_file(path, mode='rb')
     fs = EXT_TO_CLASS[ext](path=path, file_obj=file_obj)
-    for curr_path, curr_data in sorted(fs):
+    print("Path\tTimestamp\tSize (bytes)")
+    for curr_path, curr_timestamp, curr_data in sorted(fs):
         if curr_data is None:
-            print("%s\tDIR" % curr_path)
+            curr_size = 'DIR'
         else:
-            print("%s\t%d bytes" % (curr_path, len(curr_data)))
+            curr_size = len(curr_data)
+        print("%s\t%s\t%s" % (curr_path, curr_timestamp, curr_size))
     if file_obj is not None:
         file_obj.close()

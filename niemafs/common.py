@@ -58,6 +58,6 @@ class FileSystem(ABC):
         '''Iterate over the files and folders in this `FileSystem`
 
         Yields:
-            Each file or folder in this `FileSystem` as a `tuple` containing the following elements: (1) the `Path` of the file/folder within this `FileSystem`, and (2) the `bytes` of data for files or `None` for folders.
+            Each file or folder in this `FileSystem` as a `tuple` containing the following elements: (1) the `Path` of the file/folder within this `FileSystem`, (2) the modification timestamp of this file/folder, and (3) the `bytes` of data for files or `None` for folders.
         '''
         pass

@@ -1,4 +1,7 @@
 # example files
+*.bin
+*.cue
+*.iso
 *.zip
 
 # built files
