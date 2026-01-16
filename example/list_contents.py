@@ -11,6 +11,7 @@ from sys import argv, stderr
 # constants
 EXT_TO_CLASS = {
     None:  DirFS,
+    'bin': IsoFS,
     'iso': IsoFS,
     'zip': ZipFS,
 }
