@@ -7,6 +7,7 @@ Handle ISO 9660 file systems
 from niemafs.common import FileSystem
 
 # imports
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from struct import unpack
 
@@ -27,7 +28,9 @@ class IsoFS(FileSystem):
         '''
         if len(data) != 17:
             raise ValueError("ISO 9660 PVD date/time must be exactly 17 bytes: %s" % data)
-        raise NotImplementedError("TODO https://wiki.osdev.org/ISO_9660#Date/time_format") # TODO
+        dt_str = ''.join(str(v) if v < 48 else chr(v) for v in data[0:16]) + '0000' # chr(48) == '0'
+        tz = timezone(timedelta(minutes=((data[16] - 48) * 15)))
+        return datetime.strptime(dt_str + datetime.now(tz).strftime('%z'), '%Y%m%d%H%M%S%f%z')
 
     def __init__(self, file_obj, path=None):
         if file_obj is None:
