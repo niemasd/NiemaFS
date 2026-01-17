@@ -170,39 +170,46 @@ class IsoFS(FileSystem):
         if pvd is None:
             return None
         return {
-            'type_code':                            pvd[0],                           # should always be 1
-            'identifier':                           pvd[1:6].decode().rstrip(),       # should always be "CD001"
-            'version':                              pvd[6],                           # should always be 1?
-            'offset_7':                             pvd[7],                           # should always be 0
-            'system_identifier':                    pvd[8:40].decode().rstrip(),      # Name of the system that can act upon sectors 0x00-0x0F for the volume
-            'volume_identifier':                    pvd[40:72].decode().rstrip(),     # Identification (label) of this volume
-            'offsets_72_79':                        pvd[72:80],                       # should always be all 0s
-            'volume_space_size_LE':                 unpack('<I', pvd[80:84])[0],      # Volume Space Size (little-endian)
-            'volume_space_size_BE':                 unpack('>I', pvd[84:88])[0],      # Volume Space Size (big-endian) (should be equal to previous)
-            'offsets_88_119':                       pvd[88:120],                      # should always be all 0s
-            'volume_set_size_LE':                   unpack('<H', pvd[120:122])[0],    # Volume Set Size (little-endian)
-            'volume_set_size_BE':                   unpack('>H', pvd[122:124])[0],    # Volume Set Size (big-endian) (should be equal to previous)
-            'volume_sequence_number_LE':            unpack('<H', pvd[124:126])[0],    # Volume Sequence Number (little-endian)
-            'volume_sequence_number_BE':            unpack('>H', pvd[126:128])[0],    # Volume Sequence Number (big-endian) (should be equal to previous)
-            'logical_block_size_LE':                unpack('<H', pvd[128:130])[0],    # Logical Block Size (little-endian)
-            'logical_block_size_BE':                unpack('>H', pvd[130:132])[0],    # Logical Block Size (big-endian) (should be equal to previous)
-            'path_table_size_LE':                   unpack('<I', pvd[132:136])[0],    # Path Table Size (little-endian)
-            'path_table_size_BE':                   unpack('>I', pvd[136:140])[0],    # Path Table Size (big-endian) (should be equal to previous)
-            'location_L_path_table':                unpack('<I', pvd[140:144])[0],    # Location of Type-L Path Table
-            'location_optional_L_path_table':       unpack('<I', pvd[144:148])[0],    # Location of Optional Type-L Path Table
-            'location_M_path_table':                unpack('>I', pvd[148:152])[0],    # Location of Type-M Path Table
-            'location_optional_M_path_table':       unpack('>I', pvd[152:156])[0],    # Location of Optional Type-M Path Table
-            'root_directory_entry':                 pvd[156:190],                     # Directory Entry for Root Directory
-            'volume_set_identifier':                pvd[190:318].decode().rstrip(),   # Volume Set Identifier
-            'publisher_identifier':                 pvd[318:446].decode().rstrip(),   # Publisher Identifier
-            'data_preparer_identifier':             pvd[446:574].decode().rstrip(),   # Data Preparer Identifier
-            'application_identifier':               pvd[574:702].decode().rstrip(),   # Application Identifier
-            'copyright_file_identifier':            pvd[702:739].decode().rstrip(),   # Copyright File Identifier
-            'abstract_file_identifier':             pvd[739:776].decode().rstrip(),   # Abstract File Identifier
-            'bibliographic_file_identifier':        pvd[776:813].decode().rstrip(),   # Bibliographic File Identifier
-            'volume_creation_datetime':       IsoFS.parse_dec_datetime(pvd[813:830]), # Volume Creation Date and Time
-        } # TODO FINISH REST OF PVD: https://wiki.osdev.org/ISO_9660#The_Primary_Volume_Descriptor
+            'type_code':                            pvd[0],                                 # should always be 1
+            'identifier':                           pvd[1:6].decode().rstrip(),             # should always be "CD001"
+            'version':                              pvd[6],                                 # should always be 1?
+            'offset_7':                             pvd[7],                                 # should always be 0
+            'system_identifier':                    pvd[8:40].decode().rstrip(),            # Name of the system that can act upon sectors 0x00-0x0F for the volume
+            'volume_identifier':                    pvd[40:72].decode().rstrip(),           # Identification (label) of this volume
+            'offsets_72_79':                        pvd[72:80],                             # should always be all 0s
+            'volume_space_size_LE':                 unpack('<I', pvd[80:84])[0],            # Volume Space Size (little-endian)
+            'volume_space_size_BE':                 unpack('>I', pvd[84:88])[0],            # Volume Space Size (big-endian) (should be equal to previous)
+            'offsets_88_119':                       pvd[88:120],                            # should always be all 0s
+            'volume_set_size_LE':                   unpack('<H', pvd[120:122])[0],          # Volume Set Size (little-endian)
+            'volume_set_size_BE':                   unpack('>H', pvd[122:124])[0],          # Volume Set Size (big-endian) (should be equal to previous)
+            'volume_sequence_number_LE':            unpack('<H', pvd[124:126])[0],          # Volume Sequence Number (little-endian)
+            'volume_sequence_number_BE':            unpack('>H', pvd[126:128])[0],          # Volume Sequence Number (big-endian) (should be equal to previous)
+            'logical_block_size_LE':                unpack('<H', pvd[128:130])[0],          # Logical Block Size (little-endian)
+            'logical_block_size_BE':                unpack('>H', pvd[130:132])[0],          # Logical Block Size (big-endian) (should be equal to previous)
+            'path_table_size_LE':                   unpack('<I', pvd[132:136])[0],          # Path Table Size (little-endian)
+            'path_table_size_BE':                   unpack('>I', pvd[136:140])[0],          # Path Table Size (big-endian) (should be equal to previous)
+            'location_L_path_table':                unpack('<I', pvd[140:144])[0],          # Location of Type-L Path Table
+            'location_optional_L_path_table':       unpack('<I', pvd[144:148])[0],          # Location of Optional Type-L Path Table
+            'location_M_path_table':                unpack('>I', pvd[148:152])[0],          # Location of Type-M Path Table
+            'location_optional_M_path_table':       unpack('>I', pvd[152:156])[0],          # Location of Optional Type-M Path Table
+            'root_directory_entry':                 pvd[156:190],                           # Directory Entry for Root Directory
+            'volume_set_identifier':                pvd[190:318].decode().rstrip(),         # Volume Set Identifier
+            'publisher_identifier':                 pvd[318:446].decode().rstrip(),         # Publisher Identifier
+            'data_preparer_identifier':             pvd[446:574].decode().rstrip(),         # Data Preparer Identifier
+            'application_identifier':               pvd[574:702].decode().rstrip(),         # Application Identifier
+            'copyright_file_identifier':            pvd[702:739].decode().rstrip(),         # Copyright File Identifier
+            'abstract_file_identifier':             pvd[739:776].decode().rstrip(),         # Abstract File Identifier
+            'bibliographic_file_identifier':        pvd[776:813].decode().rstrip(),         # Bibliographic File Identifier
+            'volume_creation_datetime':             IsoFS.parse_dec_datetime(pvd[813:830]), # Volume Creation Date and Time
+            'volume_modification_datetime':         IsoFS.parse_dec_datetime(pvd[830:847]), # Volume Modification Date and Time
+            'volume_expiration_datetime':           IsoFS.parse_dec_datetime(pvd[847:864]), # Volume Expiration Date and Time
+            'volume_effective_datetime':            IsoFS.parse_dec_datetime(pvd[864:881]), # Volume Effective Date and Time
+            'file_structure_version':               pvd[881],                               # File Structure Version (should always be 1)
+            'offset_882':                           pvd[882],                               # should always be 0
+            'application_used':                     pvd[883:1395],                          # Application Used (not defined by ISO 9660)
+            'reserved':                             pvd[1395:2048],                         # Reserved by ISO
+            'error_detection_correction':           pvd[2048:],                             # Error Detection and Correction (EDAC) codes (if sector size > 2048)
+        }
 
     def __iter__(self):
-        print(self.parse_primary_volume_descriptor())
         raise NotImplementedError("TODO NEED TO IMPLEMENT")
