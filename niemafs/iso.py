@@ -376,20 +376,36 @@ class IsoFS(FileSystem):
         return out
 
     def __iter__(self):
+        # load root directory entry from PVD
         start_offset = self.file.tell()
         pvd = self.parse_primary_volume_descriptor()
         to_visit = [(Path('/'), pvd['root_directory_entry'])] # (Path, directory entry) tuples
+
+        # perform search starting from root directory (only contains directories, not files)
         while len(to_visit) != 0:
+            # handle current directory
             curr_path, curr_directory_entry = to_visit.pop()
             yield (curr_path, curr_directory_entry['datetime'], None)
+
+            # parse directory data for this directory entry for sub-files/directories
             self.file.seek(curr_directory_entry['data_location_LE'] * self.sector_size)
             curr_data = self.file.read(curr_directory_entry['data_length_LE'])
             ind = 0
             while True:
+                # load next entry if not at end of this directory
                 next_len = curr_data[ind]
                 if next_len == 0:
                     break
                 next_entry = IsoFS.parse_directory_record(curr_data[ind:ind+next_len])
-                print(next_entry)
+                next_entry_fn = next_entry['filename']
+
+                # next entry is a directory (add it to `to_visit`)
+                if next_entry['file_flags']['is_directory']:
+                    if next_entry_fn not in {'', '\x01'}: # ignore '.' (current) and '..' (parent)
+                        to_visit.append((curr_path / next_entry_fn, next_entry))
+
+                # next entry is a file (yield it)
+                else:
+                    print(next_entry); exit()
                 ind += next_len
         self.file.seek(start_offset)
