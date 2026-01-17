@@ -113,6 +113,18 @@ class IsoFS(FileSystem):
         out['filename'] =                         data[33 : 33+out['filename_length']] # filename (terminated with ';1' where 1 is file version number)
         # I'm skipping "padding field" and "system use" since they're not useful to me and non-trivial to code
 
+        # parse file flags
+        out['file_flags'] = {
+            'is_hidden':                         bool(out['file_flags'] & 0b00000001),
+            'is_directory':                      bool(out['file_flags'] & 0b00000010),
+            'is_associated_file':                bool(out['file_flags'] & 0b00000100),
+            'format_in_extended_attribute':      bool(out['file_flags'] & 0b00001000),
+            'permissions_in_extended_attribute': bool(out['file_flags'] & 0b00010000),
+            'reserved_5':                        bool(out['file_flags'] & 0b00100000),
+            'reserved_6':                        bool(out['file_flags'] & 0b01000000),
+            'not_final_directory':               bool(out['file_flags'] & 0b10000000),
+        }
+
         # clean strings
         for k in ['filename']:
             try:
@@ -364,12 +376,20 @@ class IsoFS(FileSystem):
         return out
 
     def __iter__(self):
+        start_offset = self.file.tell()
         pvd = self.parse_primary_volume_descriptor()
         to_visit = [(Path('/'), pvd['root_directory_entry'])] # (Path, directory entry) tuples
         while len(to_visit) != 0:
             curr_path, curr_directory_entry = to_visit.pop()
-            curr_lba = curr_directory_entry['data_location_LE']
-            curr_length = curr_directory_entry['data_length_LE']
-            curr_datetime = curr_directory_entry['datetime']
-            yield (curr_path, curr_datetime, None)
-            pass # TODO RECURSIVELY LOAD REST OF FILES
+            yield (curr_path, curr_directory_entry['datetime'], None)
+            self.file.seek(curr_directory_entry['data_location_LE'] * self.sector_size)
+            curr_data = self.file.read(curr_directory_entry['data_length_LE'])
+            ind = 0
+            while True:
+                next_len = curr_data[ind]
+                if next_len == 0:
+                    break
+                next_entry = IsoFS.parse_directory_record(curr_data[ind:ind+next_len])
+                print(next_entry)
+                ind += next_len
+        self.file.seek(start_offset)
