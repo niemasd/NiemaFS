@@ -379,13 +379,14 @@ class IsoFS(FileSystem):
         # load root directory entry from PVD
         start_offset = self.file.tell()
         pvd = self.parse_primary_volume_descriptor()
-        to_visit = [(Path('/'), pvd['root_directory_entry'])] # (Path, directory entry) tuples
+        to_visit = [(Path(''), pvd['root_directory_entry'])] # (Path, directory entry) tuples
 
         # perform search starting from root directory (only contains directories, not files)
         while len(to_visit) != 0:
             # handle current directory
             curr_path, curr_directory_entry = to_visit.pop()
-            yield (curr_path, curr_directory_entry['datetime'], None)
+            if curr_path != Path(''):
+                yield (curr_path, curr_directory_entry['datetime'], None)
 
             # parse directory data for this directory entry for sub-files/directories
             self.file.seek(curr_directory_entry['data_location_LE'] * self.sector_size)
