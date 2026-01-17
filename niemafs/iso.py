@@ -395,7 +395,7 @@ class IsoFS(FileSystem):
                 yield (curr_path, curr_directory_entry['datetime'], None)
 
             # parse directory data for this directory entry for sub-files/directories
-            self.file.seek(curr_directory_entry['data_location_LE'] * self.sector_size)
+            self.file.seek(curr_directory_entry['data_location_LE'] * self.get_sector_size())
             curr_data = self.file.read(curr_directory_entry['data_length_LE'])
             ind = 0
             while True:
