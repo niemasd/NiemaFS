@@ -365,6 +365,11 @@ class IsoFS(FileSystem):
 
     def __iter__(self):
         pvd = self.parse_primary_volume_descriptor()
-        #print(pvd['root_directory_entry'])
-        #exit() # TODO
-        raise NotImplementedError("TODO NEED TO IMPLEMENT")
+        to_visit = [(Path('/'), pvd['root_directory_entry'])] # (Path, directory entry) tuples
+        while len(to_visit) != 0:
+            curr_path, curr_directory_entry = to_visit.pop()
+            curr_lba = curr_directory_entry['data_location_LE']
+            curr_length = curr_directory_entry['data_length_LE']
+            curr_datetime = curr_directory_entry['datetime']
+            yield (curr_path, curr_datetime, None)
+            pass # TODO RECURSIVELY LOAD REST OF FILES
