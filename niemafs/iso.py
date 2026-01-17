@@ -19,12 +19,18 @@ MAGIC_WORD_SEARCH_SIZE = 50000 # magic word probably in first 50 KB; increase th
 class IsoFS(FileSystem):
     '''Class to represent an `ISO 9660 <https://wiki.osdev.org/ISO_9660>`_ optical disc'''
     def __init__(self, file_obj, path=None):
+        # set things up
         if file_obj is None:
             raise ValueError("file_obj must be a file-like")
         super().__init__(path=path, file_obj=file_obj)
         self.sector_size = None
         self.system_area = None
         self.volume_descriptors = dict() # keys = Volume Descriptor Type codes, values = bytes: https://wiki.osdev.org/ISO_9660#Volume_Descriptor_Type_Codes
+
+        # load header to ensure file validity up-front
+        self.get_sector_size()
+        self.get_system_area()
+        self.get_volume_descriptors()
 
     def clean_string(s):
         '''Clean an ISO 9660 string by right-stripping 0x00 and spaces
