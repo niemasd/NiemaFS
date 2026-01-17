@@ -1,10 +1,16 @@
 # example files
+*.BIN
 *.bin
+*.CUE
 *.cue
+*.ISO
 *.iso
+*.ZIP
 *.zip
 
-# built files
+# project files
+*.BAK
+*.bak
 docs_html
 
 # Byte-compiled / optimized / DLL files

@@ -8,13 +8,24 @@ from niemafs.common import FileSystem
 
 # imports
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 from struct import unpack
 from warnings import warn
 
 # constants
-ISO9660_PVD_MAGIC_WORD = bytes(ord(c) for c in 'CD001') # https://wiki.osdev.org/ISO_9660#Volume_Descriptors
-MAGIC_WORD_SEARCH_SIZE = 50000 # magic word probably in first 50 KB; increase this if fail to find
+ISO9660_PVD_MAGIC_WORD = bytes(ord(c) for c in 'CD001')  # https://wiki.osdev.org/ISO_9660#Volume_Descriptors
+MAGIC_WORD_SEARCH_SIZE = 50000  # fallback search window if auto-detect fails
+
+# Common optical disc sector layouts (physical sector bytes, user data offset, user data size)
+COMMON_LAYOUT_CANDIDATES = [
+    (2048,  0, 2048), # standard ISO files
+    (2352, 16, 2048), # raw CD-ROM Mode 1
+    (2448, 16, 2048), # raw + subchannel
+    (2368, 16, 2048), # rarely seen
+    (2336,  0, 2336), # user-data-only Mode 2 (even more rare)
+]
+
 
 class IsoFS(FileSystem):
     '''Class to represent an `ISO 9660 <https://wiki.osdev.org/ISO_9660>`_ optical disc'''
@@ -23,14 +34,27 @@ class IsoFS(FileSystem):
         if file_obj is None:
             raise ValueError("file_obj must be a file-like")
         super().__init__(path=path, file_obj=file_obj)
-        self.sector_size = None
-        self.system_area = None
-        self.volume_descriptors = dict() # keys = Volume Descriptor Type codes, values = bytes: https://wiki.osdev.org/ISO_9660#Volume_Descriptor_Type_Codes
+        self.logical_block_size = None           # ISO logical block size (usually 2048)
+        self.physical_logical_block_size = None  # bytes per physical sector in the image (e.g., 2048, 2352, 2448)
+        self.user_data_offset = None             # byte offset of ISO user data within a physical sector
+        self.user_data_size = None               # bytes of ISO user data per physical sector (usually 2048)
+        self.system_area = None                  # system area data
+        self.volume_descriptors = dict()         # keys = Volume Descriptor Type codes, values = bytes
 
-        # load header to ensure file validity up-front
-        self.get_sector_size()
+        # detect sector layout and load header to ensure file validity up-front
+        self._detect_layout()
         self.get_system_area()
         self.get_volume_descriptors()
+
+        # if the PVD states a logical block size, honor it (it should be 2048 for ISO 9660)
+        try:
+            pvd = self.parse_primary_volume_descriptor()
+            if pvd is not None:
+                lbs = pvd.get('logical_block_size_LE')
+                if isinstance(lbs, int) and lbs > 0:
+                    self.logical_block_size = lbs
+        except:
+            pass # if PVD parsing fails here, the image might still be readable via other volume descriptors.
 
     def clean_string(s):
         '''Clean an ISO 9660 string by right-stripping 0x00 and spaces
@@ -148,51 +172,127 @@ class IsoFS(FileSystem):
         # return final parsed data
         return out
 
-    def get_sector_size(self):
-        '''Return the sector size of this ISO in bytes (usually 2048).
+    def _read_physical(self, offset, length):
+        '''Helper function to read a chunk of data.
+
+        Args:
+            `offset` (`int`): The offset from which to start reading.
+
+            `length` (`int`): The number of bytes to read.
 
         Returns:
-            `int`: The sector size of this ISO in bytes.
+            `bytes`: The read data.
         '''
-        if self.sector_size is None:
-            start_offset = self.file.tell()
-            self.file.seek(0)
-            chunk = self.file.read(MAGIC_WORD_SEARCH_SIZE)
-            self.file.seek(start_offset)
-            magic_word_offset = chunk.find(ISO9660_PVD_MAGIC_WORD)
-            if magic_word_offset == -1:
-                raise ValueError("Failed to find ISO 9660 magic word 'CD001' in first %d bytes" % MAGIC_WORD_SEARCH_SIZE)
-            self.sector_size = (magic_word_offset - 1) // 16
-        return self.sector_size
+        start_offset = self.file.tell()
+        self.file.seek(offset)
+        data = self.file.read(length)
+        self.file.seek(start_offset)
+        return data
+
+    def _read_user_blocks(self, lba, count=1):
+        '''Read ISO logical blocks (user data blocks) starting at a specific LBA, returning concatenated user data.
+
+        Args:
+            `lba` (`int`): The first LBA of the read.
+
+            `count`: The number of ISO logical blocks to read.
+
+        Returns:
+            `bytes`: The read data.
+        '''
+        if count <= 0:
+            return b''
+        out = bytearray()
+        for i in range(count):
+            phys_off = (lba + i) * self.physical_logical_block_size + self.user_data_offset
+            out.extend(self._read_physical(phys_off, self.user_data_size))
+        return bytes(out)
+
+    def _read_extent(self, lba, length):
+        '''Read bytes from the ISO extent starting at a specific LBA (in user-data LBAs).
+
+        Args:
+            `lba`: The first LBA of the read.
+
+            `length` (`int`): The number of bytes to read.
+
+        Returns:
+            `bytes`: The read data.
+        '''
+        if length <= 0:
+            return b''
+        blocks = ceil(length / self.user_data_size)
+        data = self._read_user_blocks(lba, blocks)
+        return data[:length]
+
+    def _looks_like_pvd(self, block: bytes) -> bool:
+        '''Validate the start of an ISO 9660 Volume Descriptor block.
+
+        Args:
+            `block` (`bytes`): The block to validate.
+
+        Returns:
+            `bool`: `True` if the block looks valid, otherwise `False`.
+        '''
+        return (block is not None) and (len(block) > 6) and (block[0] == 1) and (block[1:6] == ISO9660_PVD_MAGIC_WORD) and (block[6] == 1)
+
+    def _detect_layout(self):
+        '''Detect physical sector size, user data offset, and user data size by validating the PVD at LBA 16.'''
+        if self.physical_logical_block_size is not None:
+            return
+
+        # try common known layouts by reading LBA 16 (PVD location)
+        for (phys, off, udsz) in COMMON_LAYOUT_CANDIDATES:
+            try:
+                self.physical_logical_block_size = phys
+                self.user_data_offset = off
+                self.user_data_size = udsz
+                self.logical_block_size = udsz # logical_block_size == logical block size for ISO-level parsing
+                pvd = self._read_user_blocks(16, 1)
+                if self._looks_like_pvd(pvd):
+                    return
+            except:
+                pass
+
+        # if we reach here, we failed (unknown layout)
+        raise ValueError("ISO layout does not match known existing layouts")
+
+    def get_logical_block_size(self):
+        '''Return the ISO logical block size (usually 2048).
+
+        Returns:
+            `int`: The ISO logical block size in bytes.
+        '''
+        if self.logical_block_size is None:
+            self._detect_layout()
+        return self.logical_block_size
 
     def get_system_area(self):
-        '''Return the System Area (sectors 0x00-0x0F = first 16 sectors) of the ISO.
+        '''Return the System Area (logical sectors 0x00-0x0F = first 16 sectors) of the ISO.
 
         Returns:
-            `bytes`: The System Area (sectors 0x00-0x0F = first 16 sectors) of the ISO.
+            `bytes`: The System Area (first 16 ISO logical blocks).
         '''
         if self.system_area is None:
-            start_offset = self.file.tell()
-            self.file.seek(0)
-            self.system_area = self.file.read(16 * self.get_sector_size())
-            self.file.seek(start_offset)
+            self.system_area = self._read_user_blocks(0, 16)
         return self.system_area
 
     def get_volume_descriptors(self):
-        '''Return the Volume Descriptors of the ISO. 
+        '''Return the Volume Descriptors of the ISO.
 
         Returns:
             `dict`: Keys are `Volume Descriptor Type codes <https://wiki.osdev.org/ISO_9660#Volume_Descriptor_Type_Codes>`_, and values are `bytes` of the corresponding volume descriptor.
         '''
         if len(self.volume_descriptors) == 0:
-            start_offset = self.file.tell()
-            self.file.seek(16 * self.get_sector_size())
+            lba = 16 # Volume Descriptors begin at LBA 16 and continue until type code 255
             while True:
-                next_volume_descriptor = self.file.read(self.get_sector_size())
+                next_volume_descriptor = self._read_user_blocks(lba, 1)
+                if len(next_volume_descriptor) < 7 or next_volume_descriptor[1:6] != ISO9660_PVD_MAGIC_WORD:
+                    warn("Volume Descriptor at LBA %d does not look like an ISO 9660 descriptor" % lba)
                 self.volume_descriptors[next_volume_descriptor[0]] = next_volume_descriptor
-                if next_volume_descriptor[0] == 255: # Volume Descriptor Set Terminator
+                if next_volume_descriptor[0] == 255:  # Volume Descriptor Set Terminator
                     break
-            self.file.seek(start_offset)
+                lba += 1
         return self.volume_descriptors
 
     def get_boot_record(self):
@@ -331,7 +431,6 @@ class IsoFS(FileSystem):
         out['offset_882'] =                     pvd[882]                      # should always be 0
         out['application_used'] =               pvd[883:1395]                 # Application Used (not defined by ISO 9660)
         out['reserved'] =                       pvd[1395:2048]                # Reserved by ISO
-        out['error_detection_correction'] =     pvd[2048:]                    # Error Detection and Correction (EDAC) codes (if sector size > 2048)
 
         # clean strings
         for k in ['identifier', 'system_identifier', 'volume_identifier', 'volume_set_identifier', 'publisher_identifier', 'data_preparer_identifier', 'application_identifier', 'copyright_file_identifier', 'abstract_file_identifier', 'bibliographic_file_identifier']:
@@ -383,9 +482,10 @@ class IsoFS(FileSystem):
 
     def __iter__(self):
         # load root directory entry from PVD
-        start_offset = self.file.tell()
         pvd = self.parse_primary_volume_descriptor()
-        to_visit = [(Path(''), pvd['root_directory_entry'])] # (Path, directory entry) tuples
+        if pvd is None:
+            return
+        to_visit = [(Path(''), pvd['root_directory_entry'])]  # (Path, directory entry) tuples
 
         # perform search starting from root directory (only contains directories, not files)
         while len(to_visit) != 0:
@@ -394,27 +494,26 @@ class IsoFS(FileSystem):
             if curr_path != Path(''):
                 yield (curr_path, curr_directory_entry['datetime'], None)
 
-            # parse directory data for this directory entry for sub-files/directories
-            self.file.seek(curr_directory_entry['data_location_LE'] * self.get_sector_size())
-            curr_data = self.file.read(curr_directory_entry['data_length_LE'])
+            # read directory data (extent) using ISO LBAs (data_location_LE)
+            curr_data = self._read_extent(curr_directory_entry['data_location_LE'], curr_directory_entry['data_length_LE'])
             ind = 0
             while True:
                 # load next entry if not at end of this directory
+                if ind >= len(curr_data):
+                    break
                 next_len = curr_data[ind]
                 if next_len == 0:
                     break
-                next_entry = IsoFS.parse_directory_record(curr_data[ind:ind+next_len])
+                next_entry = IsoFS.parse_directory_record(curr_data[ind:ind + next_len])
                 next_entry_fn = next_entry['filename']
 
                 # next entry is a directory (add it to `to_visit`)
                 if next_entry['file_flags']['is_directory']:
-                    if next_entry_fn not in {'', '\x01'}: # ignore '.' (current) and '..' (parent)
+                    if next_entry_fn not in {'', '\x01'}:  # ignore '.' and '..'
                         to_visit.append((curr_path / next_entry_fn, next_entry))
 
                 # next entry is a file (yield it)
                 else:
-                    self.file.seek(next_entry['data_location_LE'] * self.sector_size)
-                    next_data = self.file.read(next_entry['data_length_LE'])
+                    next_data = self._read_extent(next_entry['data_location_LE'], next_entry['data_length_LE'])
                     yield (curr_path / next_entry_fn, next_entry['datetime'], next_data)
                 ind += next_len
-        self.file.seek(start_offset)
