@@ -257,8 +257,38 @@ class IsoFS(FileSystem):
         # if we reach here, we failed (unknown layout)
         raise ValueError("ISO layout does not match known existing layouts")
 
+    def get_physical_logical_block_size(self):
+        '''Return the ISO physical logical block size.
+
+        Returns:
+            `int`: The ISO physical logical block size.
+        '''
+        if self.physical_logical_block_size is None:
+            self._detect_layout()
+        return self.physical_logical_block_size
+
+    def get_user_data_offset(self):
+        '''Return the ISO user data offset.
+
+        Returns:
+            `int`: The ISO user data offset.
+        '''
+        if self.user_data_offset is None:
+            self._detect_layout()
+        return self.user_data_offset
+
+    def get_user_data_size(self):
+        '''Return the ISO user data size.
+
+        Returns:
+            `int`: The ISO user data size.
+        '''
+        if self.user_data_size is None:
+            self._detect_layout()
+        return self.user_data_size
+
     def get_logical_block_size(self):
-        '''Return the ISO logical block size (usually 2048).
+        '''Return the ISO logical block size.
 
         Returns:
             `int`: The ISO logical block size in bytes.
