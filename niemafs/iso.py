@@ -406,6 +406,8 @@ class IsoFS(FileSystem):
 
                 # next entry is a file (yield it)
                 else:
-                    print(next_entry); exit()
+                    self.file.seek(next_entry['data_location_LE'] * self.sector_size)
+                    next_data = self.file.read(next_entry['data_length_LE'])
+                    yield (curr_path / next_entry_fn, next_entry['datetime'], next_data)
                 ind += next_len
         self.file.seek(start_offset)
