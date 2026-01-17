@@ -18,6 +18,14 @@ MAGIC_WORD_SEARCH_SIZE = 50000 # magic word probably in first 50 KB; increase th
 
 class IsoFS(FileSystem):
     '''Class to represent an `ISO 9660 <https://wiki.osdev.org/ISO_9660>`_ optical disc'''
+    def __init__(self, file_obj, path=None):
+        if file_obj is None:
+            raise ValueError("file_obj must be a file-like")
+        super().__init__(path=path, file_obj=file_obj)
+        self.sector_size = None
+        self.system_area = None
+        self.volume_descriptors = dict() # keys = Volume Descriptor Type codes, values = bytes: https://wiki.osdev.org/ISO_9660#Volume_Descriptor_Type_Codes
+
     def clean_string(s):
         '''Clean an ISO 9660 string by right-stripping 0x00 and spaces
 
@@ -29,7 +37,22 @@ class IsoFS(FileSystem):
         '''
         return s.rstrip(b'\x00').decode().rstrip()
 
-    def parse_dec_datetime(data):
+    def tz_offset_to_datetime_str(x):
+        '''Convert an ISO 9660 timezone offset to a `datetime` format string
+
+        Args:
+            `x` (`int`): The ISO 9660 timezone offset.
+
+        Returns:
+            `str`: The `datetime` format string.
+        '''
+        tz_offset_hours = (x / 4) - 12
+        tz_offset_sign = '-' if tz_offset_hours < 0 else '+'
+        tz_offset_hh = str(abs(int(tz_offset_hours))).zfill(2)
+        tz_offset_mm = str(int((abs(tz_offset_hours) % 1) * 60)).zfill(2)
+        return '%s%s%s' % (tz_offset_sign, tz_offset_hh, tz_offset_mm)
+
+    def parse_pvd_datetime(data):
         '''Parse a date/time in the `ISO 9660 Primary Volume Descriptor (PVD) date/time format <https://wiki.osdev.org/ISO_9660#Date/time_format>`_.
 
         Args:
@@ -41,23 +64,71 @@ class IsoFS(FileSystem):
         if len(data) != 17:
             raise ValueError("ISO 9660 PVD date/time must be exactly 17 bytes: %s" % data)
         dt_str = ''.join(str(v) if v < 48 else chr(v) for v in data[0:16]) + '0000' # chr(48) == '0'
-        tz_offset_hours = (data[16] / 4) - 12
-        tz_offset_sign = '-' if tz_offset_hours < 0 else '+'
-        tz_offset_hh = str(abs(int(tz_offset_hours))).zfill(2)
-        tz_offset_mm = str(int((abs(tz_offset_hours) % 1) * 60)).zfill(2)
-        tz_offset_str = '%s%s%s' % (tz_offset_sign, tz_offset_hh, tz_offset_mm)
+        tz_offset_str = IsoFS.tz_offset_to_datetime_str(data[16])
         try:
             return datetime.strptime(dt_str + tz_offset_str, '%Y%m%d%H%M%S%f%z')
         except ValueError:
             return datetime.strptime(dt_str, '%Y%m%d%H%M%S%f') # timezone is sometimes messed up
 
-    def __init__(self, file_obj, path=None):
-        if file_obj is None:
-            raise ValueError("file_obj must be a file-like")
-        super().__init__(path=path, file_obj=file_obj)
-        self.sector_size = None
-        self.system_area = None
-        self.volume_descriptors = dict() # keys = Volume Descriptor Type codes, values = bytes: https://wiki.osdev.org/ISO_9660#Volume_Descriptor_Type_Codes
+    def parse_directory_datetime(data):
+        '''Parse a date/time in the `ISO 9660 directory record date/time format <https://wiki.osdev.org/ISO_9660#Directories>.`_
+
+        Args:
+            `data` (`bytes`): A date/time (exactly 7 bytes) in the ISO 9660 directory record date/time format.
+
+        Returns:
+            `datetime`: A Python `datetime` object.
+        '''
+        dt_str = str(data[0] + 1900) + ''.join(str(x).zfill(2) for x in data[1:6])
+        tz_offset_str = IsoFS.tz_offset_to_datetime_str(data[6])
+        try:
+            return datetime.strptime(dt_str + tz_offset_str, '%Y%m%d%H%M%S%f%z')
+        except ValueError:
+            return datetime.strptime(dt_str, '%Y%m%d%H%M%S%f') # timezone is sometimes messed up
+
+    def parse_directory_record(data):
+        '''Parse an `ISO 9660 directory record <https://wiki.osdev.org/ISO_9660#Directories>`_.
+
+        Args:
+            `data` (`bytes`): The raw bytes of the directory record.
+
+        Returns:
+            `dict`: The parsed directory record.
+        '''
+        # parse directory record data
+        out = dict()
+        out['directory_record_length'] =          data[0]                              # should be equal to len(data)
+        out['extended_attribute_record_length'] = data[1]                              # extended attribute record length
+        out['data_location_LE'] =                 unpack('<I', data[2:6])[0]           # location (LBA) of data (little-endian)
+        out['data_location_BE'] =                 unpack('>I', data[6:10])[0]          # location (LBA) of data (big-endian) (should be equal to previous)
+        out['data_length_LE'] =                   unpack('<I', data[10:14])[0]         # length of data (little-endian)
+        out['data_length_BE'] =                   unpack('>I', data[14:18])[0]         # length of data (big-endian) (should be equal to previous)
+        out['datetime'] =                         data[18:25]                          # recording date and time
+        out['file_flags'] =                       data[25]                             # file flags
+        out['interleave_file_unit_size'] =        data[26]                             # file unit size for files recorded in interleaved mode (otherwise 0)
+        out['interleave_gap_size'] =              data[27]                             # gap size for files recorded in interleaved mode (otherwise 0)
+        out['volume_sequence_number_LE'] =        unpack('<H', data[28:30])[0]         # volume this extent is recorded on (little-endian)
+        out['volume_sequence_number_BE'] =        unpack('>H', data[30:32])[0]         # volume this extent is recorded on (big-endian) (should be equal to previous)
+        out['filename_length'] =                  data[32]                             # length of filename (terminated with ';1' where 1 is file version number)
+        out['filename'] =                         data[33 : 33+out['filename_length']] # filename (terminated with ';1' where 1 is file version number)
+        # I'm skipping "padding field" and "system use" since they're not useful to me and non-trivial to code
+
+        # clean strings
+        for k in ['filename']:
+            try:
+                out[k] = IsoFS.clean_string(out[k])
+            except:
+                warn("Unable to parse Directory Record '%s' as string: %s" % (k, out[k]))
+
+        # parse date-times
+        for k in ['datetime']:
+            try:
+                out[k] = IsoFS.parse_directory_datetime(out[k])
+            except:
+                warn("Unable to parse Directory Record '%s' as date-time: %s" % (k, out[k]))
+
+        # return final parsed data
+        return out
 
     def get_sector_size(self):
         '''Return the sector size of this ISO in bytes (usually 2048).
@@ -254,9 +325,12 @@ class IsoFS(FileSystem):
         # parse date-times
         for k in ['volume_creation_datetime', 'volume_modification_datetime', 'volume_expiration_datetime', 'volume_effective_datetime']:
             try:
-                out[k] = IsoFS.parse_dec_datetime(out[k])
+                out[k] = IsoFS.parse_pvd_datetime(out[k])
             except:
                 warn("Unable to parse PVD '%s' as date-time: %s" % (k, out[k]))
+
+        # parse root directory entry (this must succeed to be able to parse files in this ISO)
+        out['root_directory_entry'] = IsoFS.parse_directory_record(out['root_directory_entry'])
 
         # return final parsed data
         return out
@@ -290,4 +364,7 @@ class IsoFS(FileSystem):
         return out
 
     def __iter__(self):
+        pvd = self.parse_primary_volume_descriptor()
+        #print(pvd['root_directory_entry'])
+        #exit() # TODO
         raise NotImplementedError("TODO NEED TO IMPLEMENT")
