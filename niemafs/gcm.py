@@ -127,7 +127,7 @@ class GcmFS(FileSystem):
         out['stream_buffer_size'] =    data[0x0009]                           # Stream Buffer Size
         out['offsets_0x000A_0x001B'] = data[0x000A : 0x001C]                  # Unused (should be 0s)
         out['dvd_magic_word'] =        data[0x001C : 0x0020]                  # DVD Magic Word (should be 0xc2339f3d)
-        out['game_name'] =             data[0x0020 : 0x03FF]                  # Game Name
+        out['game_name'] =             data[0x0020 : 0x0400]                  # Game Name
         out['debug_monitor_offset'] =  unpack('>I', data[0x0400 : 0x0404])[0] # Offset of Debug Monitor (dh.bin)?
         out['debug_monitor_address'] = unpack('>I', data[0x0404 : 0x0408])[0] # Address(?) to load Debug Monitor (dh.bin)?
         out['offsets_0x0408_0x0419'] = data[0x0408 : 0x0420]                  # Unused (should be 0s)
