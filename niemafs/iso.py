@@ -19,13 +19,29 @@ MAGIC_WORD_SEARCH_SIZE = 50000  # fallback search window if auto-detect fails
 
 # Common optical disc sector layouts (physical sector bytes, user data offset, user data size)
 COMMON_LAYOUT_CANDIDATES = [
-    (2048,  0, 2048), # standard ISO files
-    (2352, 16, 2048), # raw CD-ROM Mode 1
-    (2448, 16, 2048), # raw + subchannel
-    (2368, 16, 2048), # rarely seen
-    (2336,  0, 2336), # user-data-only Mode 2 (even more rare)
+    (2048,   0, 2048), # Standard ISO/UDF logical blocks
+    (2352,  16, 2048), # CD-ROM Mode 1 raw: sync(12)+hdr(4)+data(2048)+...
+    (2352,  16, 2336), # CD-ROM Mode 2 raw "formless" data payload after hdr (rare for ISO9660)
+    (2352,  24, 2048), # CD-ROM XA Mode 2 Form 1 raw: +subhdr(8) then 2048
+    (2352,  24, 2324), # CD-ROM XA Mode 2 Form 2 raw: +subhdr(8) then 2324
+    (2352,   0, 2352), # CD-DA audio frame (Red Book)
+    (2448,  16, 2048), # Mode 1 raw + 96B subchannel
+    (2448,  16, 2336), # Mode 2 raw + 96B subchannel (formless)
+    (2448,  24, 2048), # XA Form 1 raw + 96B subchannel
+    (2448,  24, 2324), # XA Form 2 raw + 96B subchannel
+    (2448,   0, 2352), # Audio + 96B subchannel (CDG/Karaoke/CD-DA+sub)
+    (2340,   4, 2048), # Mode 1 without sync (hdr at 0..3, user at 4)
+    (2340,   4, 2336), # Mode 2 without sync (hdr at 0..3, "data" after)
+    (2336,   0, 2336), # Mode 2 payload-only (no sync/hdr)
+    (2336,   0, 2048), # Mode 1 sans sync+hdr: first 2048 are user, then EDC/zero/ECC
+    (2324,   0, 2324), # XA Form 2 user data only
+    (2328,   0, 2324), # XA Form 2 "data + 4 spare" (libcdio notes 2328 = 2324+4 spare)
+    (2332,   8, 2324), # XA "subheader + 2324" (8 + 2324) a.k.a. M2SUB_SECTOR_SIZE
+    (2056,   8, 2048), # XA Form 1 cooked with subheader preserved (8 + 2048)
+    (2052,   0, 2048), # Mode 1 cooked-ish with EDC preserved (2048 + 4)
+    (2064,  16, 2048), # Mode 1 with only sync+hdr kept (12+4+2048)
+    (2076,  16, 2048), # Mode 1 with sync+hdr+data+EDC+zero (12+4+2048+4+8)
 ]
-
 
 class IsoFS(FileSystem):
     '''Class to represent an `ISO 9660 <https://wiki.osdev.org/ISO_9660>`_ optical disc'''
