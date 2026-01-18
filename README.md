@@ -23,7 +23,7 @@ The workflow to use each of the NiemaFS classes is as follows:
     2. The modification timestamp of the file/folder as a [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime)
     3. The contents of the file as [`bytes`](https://docs.python.org/3/library/stdtypes.html#bytes), or `None` for directories
 
-See the [documentation](https://niema.net/NiemaFS) as well as the [example scripts](example) for more information.
+See the [documentation](https://niema.net/NiemaFS) as well as the [example scripts](scripts) for more information. This repository also contains [example files](example) to test the NiemaFS classes.
 
 ### [`DirFS`](https://niema.net/NiemaFS/#niemafs.DirFS) — Directories
 
