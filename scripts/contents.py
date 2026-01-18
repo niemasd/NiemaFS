@@ -52,19 +52,22 @@ if __name__ == "__main__":
     print_log("Loading input file: %s" % args.input)
     with niemafs.open_file(args.input, 'rb') as input_file:
         fs = FORMAT_TO_CLASS[args.format](input_file)
-        file_tuples = sorted(fs)
         if args.output is not None:
-            print_log("Extracting %d files to: %s" % (len(file_tuples), args.output))
+            print_log("Extracting files to: %s" % args.output)
             args.output.mkdir()
-        for file_num, file_tuple in enumerate(file_tuples):
+        for file_num, file_tuple in enumerate(fs):
             curr_path, curr_timestamp, curr_data = file_tuple
             if args.output is None:
-                print_log("[%d/%d] '%s' (%s)" % (file_num + 1, len(file_tuples), args.input / curr_path, curr_timestamp))
+                if curr_data is None:
+                    size_str = 'DIR'
+                else:
+                    size_str = '%d bytes' % len(curr_data)
+                print_log("[%d] '%s' (%s) (%s)" % (file_num + 1, args.input / curr_path, curr_timestamp, size_str))
             else:
                 out_path = args.output / curr_path
                 if (len(out_path.name) > 2) and (out_path.name[-2] == ';') and (out_path.name[-1].isdigit()):
                     out_path = out_path.parent / out_path.name[:-2]
-                print_log("[%d/%d] Extracting '%s' (%s) to '%s'..." % (file_num + 1, len(file_tuples), args.input / curr_path, curr_timestamp, out_path))
+                print_log("[%d] Extracting '%s' (%s) to '%s'..." % (file_num + 1, args.input / curr_path, curr_timestamp, out_path))
                 if curr_data is None: # directory
                     out_path.mkdir()
                 else: # file

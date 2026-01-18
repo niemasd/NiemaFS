@@ -53,7 +53,7 @@ class WiiFS(FileSystem):
         return self.partitions_info
 
     def get_partition_tables(self):
-        '''Return the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
+        '''Return the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>`_ of the Wii disc.
 
         Returns:
             `list` of `bytes`: The Partition Tables of the Wii disc.
@@ -189,5 +189,34 @@ class WiiFS(FileSystem):
         return out
 
     def __iter__(self):
-        print(self.parse_region_info())
-        raise NotImplementedError("TODO https://wiibrew.org/wiki/Wii_disc")
+        # parse each partition table
+        for partitions_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
+            partitions_path = Path('partitions_%d' % (partitions_num+1))
+            yield (partitions_path, None, None)
+
+            # parse each partition in the partition table
+            for partition_num, partition in enumerate(parsed_partition_table):
+                # load partition header
+                partition_path = partitions_path / ('partition_%d' % (partition_num+1))
+                yield (partition_path, None, None)
+                partition_header = self.read_file(partition['offset'], 0x02C0)
+                partition_header_path = partition_path / 'partition_header'
+
+                # parse partition header: ticket
+                ticket = partition_header[0x0000 : 0x02A4]
+                yield (partition_header_path / 'ticket.tik', None, ticket)
+
+                # parse partition header: TMD
+                tmd_size =   unpack('>I', partition_header[0x02A4 : 0x02A8])[0]
+                tmd_offset = unpack('>I', partition_header[0x02A8 : 0x02AC])[0] >> 2
+                yield (partition_header_path / 'title.tmd', None, self.read_file(tmd_offset, tmd_size))
+
+                # parse partition header: cert chain
+                cert_chain_size =   unpack('>I', partition_header[0x02AC : 0x02B0])[0]
+                cert_chain_offset = unpack('>I', partition_header[0x02B0 : 0x02B4])[0] >> 2
+                yield (partition_header_path / 'cert.sys', None, self.read_file(cert_chain_offset, cert_chain_size))
+
+                # parse partition header: H3 table
+                h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] >> 2 # size is always 0x18000
+                yield (partition_header_path / 'table.h3', None, self.read_file(h3_table_offset, 0x18000))
+                #print(partition) # TODO PARSE THIS PARTITION: https://wiibrew.org/wiki/Wii_disc#Partition
