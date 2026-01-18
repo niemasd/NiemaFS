@@ -19,7 +19,9 @@ class WiiFS(FileSystem):
         if file_obj is None:
             raise ValueError("file_obj must be a file-like")
         super().__init__(path=path, file_obj=file_obj)
-        self.header = None # Header
+        self.header = None           # Header
+        self.partitions_info = None  # Partitions Information
+        self.partition_tables = None # Partition Tables
 
     def get_header(self):
         '''Return the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc.
@@ -30,6 +32,26 @@ class WiiFS(FileSystem):
         if self.header is None:
             self.header = self.read_file(0x0000, 0x0400)
         return self.header
+
+    def get_partitions_info(self):
+        '''Return the `Partitions Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
+
+        Returns:
+            `bytes`: The Partitions Information of the Wii disc.
+        '''
+        if self.partitions_info is None:
+            self.partitions_info = self.read_file(0x40000, 32)
+        return self.partitions_info
+
+    def get_partition_tables(self):
+        '''Return the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
+
+        Returns:
+            `list` of `bytes`: The Partition Tables of the Wii disc.
+        '''
+        if self.partition_tables is None:
+            self.partition_tables = [self.read_file(parts_info['table_offset'], 8 * parts_info['num_partitions']) for parts_info in self.parse_partitions_info()]
+        return self.partition_tables
 
     def parse_header(self):
         '''Return a parsed version of the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc.
@@ -67,6 +89,52 @@ class WiiFS(FileSystem):
         # return final parsed data
         return out
 
+    def parse_partitions_info(self):
+        '''Return a parsed version of the `Partitions Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
+
+        Returns:
+            `list` of `dict`: A parsed version of the Partitions Information of the Wii disc.
+        '''
+        # set things up
+        data = self.get_partitions_info()
+        out = [dict(), dict(), dict(), dict()]
+
+        # parse raw Partitions Information data
+        out[0]['num_partitions'] = unpack('>I', data[0 : 4])[0]        # Number of 1st Partitions
+        out[0]['table_offset'] =   unpack('>I', data[4 : 8])[0]   << 2 # 1st Partitions Info Table Offset
+        out[1]['num_partitions'] = unpack('>I', data[8 : 12])[0]       # Number of 2nd Partitions
+        out[1]['table_offset'] =   unpack('>I', data[12 : 16])[0] << 2 # 2nd Partitions Info Table Offset
+        out[2]['num_partitions'] = unpack('>I', data[16 : 20])[0]      # Number of 3rd Partitions
+        out[2]['table_offset'] =   unpack('>I', data[20 : 24])[0] << 2 # 3rd Partitions Info Table Offset
+        out[3]['num_partitions'] = unpack('>I', data[24 : 28])[0]      # Number of 4th Partitions
+        out[3]['table_offset'] =   unpack('>I', data[28 : 32])[0] << 2 # 4th Partitions Info Table Offset
+
+        # return final parsed data
+        return out
+
+    def parse_partition_tables(self):
+        '''Return a parsed vertion of the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
+
+        Returns:
+            `list` of `dict`: A parsed vertion of the Partition Tables
+        '''
+        # set things up
+        raw_tables = self.get_partition_tables()
+        out = list()
+
+        # parse raw Partition Table data
+        for table_num, data in enumerate(raw_tables):
+            partitions = list()
+            for i in range(0, len(data), 8):
+                partitions.append({
+                    'offset': unpack('>I', data[i : i + 4])[0] << 2, # Partition Offset
+                    'type':   unpack('>I', data[i + 4 : i + 8])[0],  # Partition Type (0 = Data Partition, 1 = Update Partition, 2 = Channel Installer)
+                })
+            out.append(partitions)
+        
+        # return final parsed data
+        return out
+
     def __iter__(self):
-        print(self.parse_header())
+        print(self.parse_partition_tables())
         raise NotImplementedError("TODO https://wiibrew.org/wiki/Wii_disc")
