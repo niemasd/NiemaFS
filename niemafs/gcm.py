@@ -42,6 +42,29 @@ class GcmFS(FileSystem):
             data = data.decode()
         return datetime.strptime(data, '%Y/%m/%d')
 
+    def parse_fst_entry(data):
+        '''Parse a `File System Table (FST) entry <https://www.gc-forever.com/yagcd/chap13.html#sec13.4.1>`_.
+
+        Args:
+            `data` (`bytes`): The raw bytes of the FST entry.
+
+        Returns:
+            `dict`: The parsed FST entry.
+        '''
+        # set things up
+        if len(data) != 12:
+            raise ValueError("FST entries must be exactly 12 bytes in length: %s" % data)
+        out = dict()
+
+        # parse raw FST entry data
+        out['flags'] =    data[0x00]                         # Flags: 0 = file, 1 = directory
+        out['filename'] = data[0x01 : 0x04]                  # Filename as Offset into String Table
+        out['offset'] =   unpack('>I', data[0x04 : 0x08])[0] # File Offset (for files) or Parent Offset (for directories)
+        out['length'] =   unpack('>I', data[0x08 : 0x0C])[0] # File Size (for files) or Number of Entries (for root) or Next Offset (for directories)
+
+        # return final parsed data
+        return out
+
     def get_boot_bin(self):
         '''Return the `Disk Header ("boot.bin") <https://www.gc-forever.com/yagcd/chap13.html#sec13.1>`_ of the GCM.
 
@@ -178,6 +201,9 @@ class GcmFS(FileSystem):
         return out
 
     def __iter__(self):
+        # load root directory entry and string table
         fst = self.get_fst_bin()
-        pass # CONTINUE HERE https://www.gc-forever.com/yagcd/chap13.html#sec13.4
-        raise NotImplementedError("TODO") # TODO
+        root_dir_entry = GcmFS.parse_fst_entry(fst[0x00 : 0x0C])
+        num_entries = root_dir_entry['length']
+        string_table = [s.decode() for s in fst[0x0C * num_entries :][:-1].split(b'\x00')]
+        raise NotImplementedError("TODO") # TODO CONTINUE HERE https://www.gc-forever.com/yagcd/chap13.html#sec13.4
