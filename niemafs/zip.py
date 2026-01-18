@@ -20,7 +20,8 @@ class ZipFS(FileSystem):
         self.zip = ZipFile(self.file, 'r')
 
     def __del__(self):
-        self.zip.close()
+        if hasattr(self, 'zip'):
+            self.zip.close()
 
     def __iter__(self):
         for curr_entry in self.zip.infolist():

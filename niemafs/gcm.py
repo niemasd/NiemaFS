@@ -13,7 +13,7 @@ from struct import unpack
 from warnings import warn
 
 class GcmFS(FileSystem):
-    '''Class to represent a `Nintendo GameCube GCM mini-DVD <https://www.gc-forever.com/yagcd/chap13.html#sec13>`_'''
+    '''Class to represent a `Nintendo GameCube GCM mini-DVD <https://www.gc-forever.com/yagcd/chap13.html#sec13>`_.'''
     def __init__(self, file_obj, path=None):
         # set things up
         if file_obj is None:
