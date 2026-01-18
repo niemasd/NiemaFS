@@ -61,3 +61,24 @@ class FileSystem(ABC):
             Each file or folder in this `FileSystem` as a `tuple` containing the following elements: (1) the `Path` of the file/folder within this `FileSystem`, (2) the modification timestamp of this file/folder, and (3) the `bytes` of data for files or `None` for folders.
         '''
         pass
+
+    def read_file(self, offset, length, return_to_init=False):
+        '''Read data from the underlying `file`-like object.
+
+        Args:
+            `offset` (`int`): The offset from which to start reading.
+
+            `length` (`int`): The number of bytes to read.
+
+            `return_to_init` (`bool`): `True` to seek back to the initial offset after finishing the read, otherwise `False` (faster)
+
+        Returns:
+            `bytes`: The read data.
+        '''
+        if return_to_init:
+            start_offset = self.file.tell()
+        self.file.seek(offset)
+        data = self.file.read(length)
+        if return_to_init:
+            self.file.seek(start_offset)
+        return data

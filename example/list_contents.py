@@ -4,7 +4,7 @@ List the contents of a given file system
 '''
 
 # imports
-from niemafs import DirFS, IsoFS, open_file, ZipFS
+from niemafs import DirFS, GcmFS, IsoFS, open_file, ZipFS
 from pathlib import Path
 from sys import argv, stderr
 
@@ -12,6 +12,7 @@ from sys import argv, stderr
 EXT_TO_CLASS = {
     None:  DirFS,
     'bin': IsoFS,
+    'gcm': GcmFS,
     'iso': IsoFS,
     'zip': ZipFS,
 }

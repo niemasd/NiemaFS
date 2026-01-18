@@ -3,6 +3,8 @@
 *.bin
 *.CUE
 *.cue
+*.GCM
+*.gcm
 *.ISO
 *.iso
 *.ZIP

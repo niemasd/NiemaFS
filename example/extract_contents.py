@@ -4,13 +4,14 @@ Extract the contents of a given file system
 '''
 
 # imports
-from niemafs import IsoFS, open_file, ZipFS
+from niemafs import GcmFS, IsoFS, open_file, ZipFS
 from pathlib import Path
 from sys import stdout
 import argparse
 
 # constants
 FORMAT_TO_CLASS = {
+    'GCM': GcmFS,
     'ISO': IsoFS,
     'ZIP': ZipFS,
 }

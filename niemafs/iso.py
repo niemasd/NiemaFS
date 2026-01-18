@@ -188,23 +188,6 @@ class IsoFS(FileSystem):
         # return final parsed data
         return out
 
-    def _read_physical(self, offset, length):
-        '''Helper function to read a chunk of data.
-
-        Args:
-            `offset` (`int`): The offset from which to start reading.
-
-            `length` (`int`): The number of bytes to read.
-
-        Returns:
-            `bytes`: The read data.
-        '''
-        start_offset = self.file.tell()
-        self.file.seek(offset)
-        data = self.file.read(length)
-        self.file.seek(start_offset)
-        return data
-
     def _read_user_blocks(self, lba, count=1):
         '''Read ISO logical blocks (user data blocks) starting at a specific LBA, returning concatenated user data.
 
@@ -221,7 +204,7 @@ class IsoFS(FileSystem):
         out = bytearray()
         for i in range(count):
             phys_off = (lba + i) * self.physical_logical_block_size + self.user_data_offset
-            out.extend(self._read_physical(phys_off, self.user_data_size))
+            out.extend(self.read_file(phys_off, self.user_data_size))
         return bytes(out)
 
     def _read_extent(self, lba, length):
