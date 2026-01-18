@@ -12,6 +12,14 @@ from pathlib import Path
 from struct import unpack
 from warnings import warn
 
+# constants
+REGION = {
+    0: 'Japan/Taiwan',
+    1: 'USA',
+    2: 'PAL',
+    4: 'Korea',
+}
+
 class WiiFS(FileSystem):
     '''Class to represent a `Nintendo Wii DVD <https://wiibrew.org/wiki/Wii_disc#%22System_Area%22>`_.'''
     def __init__(self, file_obj, path=None):
@@ -22,6 +30,7 @@ class WiiFS(FileSystem):
         self.header = None           # Header
         self.partitions_info = None  # Partitions Information
         self.partition_tables = None # Partition Tables
+        self.region_info = None      # Region Information
 
     def get_header(self):
         '''Return the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc.
@@ -52,6 +61,16 @@ class WiiFS(FileSystem):
         if self.partition_tables is None:
             self.partition_tables = [self.read_file(parts_info['table_offset'], 8 * parts_info['num_partitions']) for parts_info in self.parse_partitions_info()]
         return self.partition_tables
+
+    def get_region_info(self):
+        '''Return the `Region Information <https://wiibrew.org/wiki/Wii_disc#Region_setting>`_ of the Wii disc.
+
+        Returns:
+            `bytes`: The Region Information of the Wii disc.
+        '''
+        if self.region_info is None:
+            self.region_info = self.read_file(0x4E000, 32)
+        return self.region_info
 
     def parse_header(self):
         '''Return a parsed version of the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc.
@@ -113,10 +132,10 @@ class WiiFS(FileSystem):
         return out
 
     def parse_partition_tables(self):
-        '''Return a parsed vertion of the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
+        '''Return a parsed version of the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
 
         Returns:
-            `list` of `dict`: A parsed vertion of the Partition Tables
+            `list` of `dict`: A parsed version of the Partition Tables
         '''
         # set things up
         raw_tables = self.get_partition_tables()
@@ -135,6 +154,40 @@ class WiiFS(FileSystem):
         # return final parsed data
         return out
 
+    def parse_region_info(self):
+        '''Return a parsed version of the `Region Information <https://wiibrew.org/wiki/Wii_disc#Region_setting>`_ of the Wii disc.
+
+        Returns:
+            `dict`: A parsed version of the Region Information of the Wii disc.
+        '''
+        # set things up
+        data = self.get_region_info()
+        out = dict()
+
+        # parse raw Region Information data
+        out['region'] =                  unpack('>I', data[0x00 : 0x04])[0] # Region (0 = Japan/Taiwan, 1 = USA, 2 = PAL, 4 = Korea)
+        out['offsets_0x04_0x0F'] =       data[0x04 : 0x10]                  # Unused(?)
+        out['age_rating_japan_taiwan'] = data[0x10]                         # Age Rating: Japan/Taiwan
+        out['age_rating_usa'] =          data[0x11]                         # Age Rating: USA
+        out['offset_0x12'] =             data[0x12]                         # Unused(?)
+        out['age_rating_germany'] =      data[0x13]                         # Age Rating: Germany
+        out['age_rating_pegi'] =         data[0x14]                         # Age Rating: PEGI
+        out['age_rating_finland'] =      data[0x15]                         # Age Rating: Finland
+        out['age_rating_portugal'] =     data[0x16]                         # Age Rating: Portugal
+        out['age_rating_britain'] =      data[0x17]                         # Age Rating: Britain
+        out['age_rating_australia'] =    data[0x18]                         # Age Rating: Australia
+        out['age_rating_korea'] =        data[0x19]                         # Age Rating: Korea
+        out['offsets_0x1A_0x1F'] =       data[0x1A : 0x20]                  # Unused(?)
+
+        # parse region byte
+        try:
+            out['region'] = REGION[out['region']]
+        except:
+            warn("Unable to parse region byte: %s" % out['region'])
+
+        # return final parsed data
+        return out
+
     def __iter__(self):
-        print(self.parse_partition_tables())
+        print(self.parse_region_info())
         raise NotImplementedError("TODO https://wiibrew.org/wiki/Wii_disc")
