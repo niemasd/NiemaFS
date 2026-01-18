@@ -42,7 +42,7 @@ fs = DirFS(path=target_path)
 
 ### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube mini-DVD
 
-Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps (i.e., `curr_timestamp` in the example below will always be `None`).
+Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import GcmFS
