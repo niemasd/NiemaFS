@@ -4,7 +4,7 @@ Handle ISO 9660 file systems
 '''
 
 # NiemaFS imports
-from niemafs.common import FileSystem
+from niemafs.common import clean_string, FileSystem
 
 # imports
 from datetime import datetime
@@ -58,7 +58,7 @@ class IsoFS(FileSystem):
         self.volume_descriptors = dict()         # keys = Volume Descriptor Type codes, values = bytes
 
         # detect sector layout and load header to ensure file validity up-front
-        self._detect_layout()
+        self.detect_layout()
         self.get_system_area()
         self.get_volume_descriptors()
 
@@ -71,17 +71,6 @@ class IsoFS(FileSystem):
                     self.logical_block_size = lbs
         except:
             pass # if PVD parsing fails here, the image might still be readable via other volume descriptors.
-
-    def clean_string(s):
-        '''Clean an ISO 9660 string by right-stripping 0x00 and spaces
-
-        Args:
-            `s` (`bytes`): The ISO 9660 string to clean
-
-        Returns:
-            `str`: The cleaned string
-        '''
-        return s.rstrip(b'\x00').decode().rstrip()
 
     def tz_offset_to_datetime_str(x):
         '''Convert an ISO 9660 timezone offset to a `datetime` format string
@@ -174,7 +163,7 @@ class IsoFS(FileSystem):
         # clean strings
         for k in ['filename']:
             try:
-                out[k] = IsoFS.clean_string(out[k])
+                out[k] = clean_string(out[k])
             except:
                 warn("Unable to parse Directory Record '%s' as string: %s" % (k, out[k]))
 
@@ -188,7 +177,7 @@ class IsoFS(FileSystem):
         # return final parsed data
         return out
 
-    def _read_user_blocks(self, lba, count=1):
+    def read_user_blocks(self, lba, count=1):
         '''Read ISO logical blocks (user data blocks) starting at a specific LBA, returning concatenated user data.
 
         Args:
@@ -207,7 +196,7 @@ class IsoFS(FileSystem):
             out.extend(self.read_file(phys_off, self.user_data_size))
         return bytes(out)
 
-    def _read_extent(self, lba, length):
+    def read_extent(self, lba, length):
         '''Read bytes from the ISO extent starting at a specific LBA (in user-data LBAs).
 
         Args:
@@ -221,10 +210,10 @@ class IsoFS(FileSystem):
         if length <= 0:
             return b''
         blocks = ceil(length / self.user_data_size)
-        data = self._read_user_blocks(lba, blocks)
+        data = self.read_user_blocks(lba, blocks)
         return data[:length]
 
-    def _looks_like_pvd(self, block: bytes) -> bool:
+    def looks_like_pvd(self, block: bytes) -> bool:
         '''Validate the start of an ISO 9660 Volume Descriptor block.
 
         Args:
@@ -235,7 +224,7 @@ class IsoFS(FileSystem):
         '''
         return (block is not None) and (len(block) > 6) and (block[0] == 1) and (block[1:6] == ISO9660_PVD_MAGIC_WORD) and (block[6] == 1)
 
-    def _detect_layout(self):
+    def detect_layout(self):
         '''Detect physical sector size, user data offset, and user data size by validating the PVD at LBA 16.'''
         if self.physical_logical_block_size is not None:
             return
@@ -247,8 +236,8 @@ class IsoFS(FileSystem):
                 self.user_data_offset = off
                 self.user_data_size = udsz
                 self.logical_block_size = udsz # logical_block_size == logical block size for ISO-level parsing
-                pvd = self._read_user_blocks(16, 1)
-                if self._looks_like_pvd(pvd):
+                pvd = self.read_user_blocks(16, 1)
+                if self.looks_like_pvd(pvd):
                     return
             except:
                 pass
@@ -263,7 +252,7 @@ class IsoFS(FileSystem):
             `int`: The ISO physical logical block size.
         '''
         if self.physical_logical_block_size is None:
-            self._detect_layout()
+            self.detect_layout()
         return self.physical_logical_block_size
 
     def get_user_data_offset(self):
@@ -273,7 +262,7 @@ class IsoFS(FileSystem):
             `int`: The ISO user data offset.
         '''
         if self.user_data_offset is None:
-            self._detect_layout()
+            self.detect_layout()
         return self.user_data_offset
 
     def get_user_data_size(self):
@@ -283,7 +272,7 @@ class IsoFS(FileSystem):
             `int`: The ISO user data size.
         '''
         if self.user_data_size is None:
-            self._detect_layout()
+            self.detect_layout()
         return self.user_data_size
 
     def get_logical_block_size(self):
@@ -293,7 +282,7 @@ class IsoFS(FileSystem):
             `int`: The ISO logical block size in bytes.
         '''
         if self.logical_block_size is None:
-            self._detect_layout()
+            self.detect_layout()
         return self.logical_block_size
 
     def get_system_area(self):
@@ -303,7 +292,7 @@ class IsoFS(FileSystem):
             `bytes`: The System Area (first 16 ISO logical blocks).
         '''
         if self.system_area is None:
-            self.system_area = self._read_user_blocks(0, 16)
+            self.system_area = self.read_user_blocks(0, 16)
         return self.system_area
 
     def get_volume_descriptors(self):
@@ -315,7 +304,7 @@ class IsoFS(FileSystem):
         if len(self.volume_descriptors) == 0:
             lba = 16 # Volume Descriptors begin at LBA 16 and continue until type code 255
             while True:
-                next_volume_descriptor = self._read_user_blocks(lba, 1)
+                next_volume_descriptor = self.read_user_blocks(lba, 1)
                 if len(next_volume_descriptor) < 7 or next_volume_descriptor[1:6] != ISO9660_PVD_MAGIC_WORD:
                     warn("Volume Descriptor at LBA %d does not look like an ISO 9660 descriptor" % lba)
                 self.volume_descriptors[next_volume_descriptor[0]] = next_volume_descriptor
@@ -402,7 +391,7 @@ class IsoFS(FileSystem):
         # clean strings
         for k in ['identifier', 'boot_system_identifier', 'boot_identifier']:
             try:
-                out[k] = IsoFS.clean_string(out[k])
+                out[k] = clean_string(out[k])
             except:
                 warn("Unable to parse Boot Record '%s' as string: %s" % (k, out[k]))
 
@@ -464,7 +453,7 @@ class IsoFS(FileSystem):
         # clean strings
         for k in ['identifier', 'system_identifier', 'volume_identifier', 'volume_set_identifier', 'publisher_identifier', 'data_preparer_identifier', 'application_identifier', 'copyright_file_identifier', 'abstract_file_identifier', 'bibliographic_file_identifier']:
             try:
-                out[k] = IsoFS.clean_string(out[k])
+                out[k] = clean_string(out[k])
             except:
                 warn("Unable to parse Primary Volume Descriptor '%s' as string: %s" % (k, out[k]))
 
@@ -502,7 +491,7 @@ class IsoFS(FileSystem):
         # clean strings
         for k in ['identifier']:
             try:
-                out[k] = IsoFS.clean_string(out[k])
+                out[k] = clean_string(out[k])
             except:
                 warn("Unable to parse Volume Descriptor Set Terminator '%s' as string: %s" % (k, out[k]))
 
@@ -524,7 +513,7 @@ class IsoFS(FileSystem):
                 yield (curr_path, curr_directory_entry['datetime'], None)
 
             # read directory data (extent) using ISO LBAs (data_location_LE)
-            curr_data = self._read_extent(curr_directory_entry['data_location_LE'], curr_directory_entry['data_length_LE'])
+            curr_data = self.read_extent(curr_directory_entry['data_location_LE'], curr_directory_entry['data_length_LE'])
             ind = 0
             while True:
                 # load next entry if not at end of this directory
@@ -543,6 +532,6 @@ class IsoFS(FileSystem):
 
                 # next entry is a file (yield it)
                 else:
-                    next_data = self._read_extent(next_entry['data_location_LE'], next_entry['data_length_LE'])
+                    next_data = self.read_extent(next_entry['data_location_LE'], next_entry['data_length_LE'])
                     yield (curr_path / next_entry_fn, next_entry['datetime'], next_data)
                 ind += next_len

@@ -13,6 +13,20 @@ from sys import stdin, stdout
 DEFAULT_BUFFER_SIZE = 1048576 # 1 MB
 DEFAULT_COMPRESS_LEVEL = 9
 
+def clean_string(s):
+    '''Clean a string (binary or normal) by right-stripping 0x00 and spaces
+
+    Args:
+        `s` (`bytes`): The ISO 9660 string to clean
+
+    Returns:
+        `str`: The cleaned string
+    '''
+    if isinstance(s, bytes):
+        return s.rstrip(b'\x00').decode().rstrip()
+    else:
+        return s.rstrip()
+
 def open_file(path, mode='rb', buffering=DEFAULT_BUFFER_SIZE, compresslevel=DEFAULT_COMPRESS_LEVEL):
     '''Open a file for reading, writing, or appending. Automatically handles GZIP compression.
 
