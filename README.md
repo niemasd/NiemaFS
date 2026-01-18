@@ -40,6 +40,24 @@ for curr_path, curr_timestamp, curr_data in fs:
         print('FILE', curr_path, curr_timestamp, len(curr_data))
 ```
 
+### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube mini-DVD
+
+Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps (i.e., `curr_timestamp` in the example below will always be `None`).
+
+```python
+from pathlib import Path
+target_path = Path('game.gcm')
+
+from niemafs import GcmFS
+with open(target_path, 'rb') as target_file:
+    fs = GcmFS(path=target_path, file_obj=target_file)
+    for curr_path, curr_timestamp, curr_data in fs:
+        if curr_data is None:
+            print('DIR', curr_path, curr_timestamp)
+        else:
+            print('FILE', curr_path, curr_timestamp, len(curr_data))
+```
+
 ### [`IsoFS`](https://niema.net/NiemaFS/#niemafs.IsoFS) — ISO 9660 Disc Image
 
 ```python
