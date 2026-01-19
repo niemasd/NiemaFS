@@ -4,6 +4,7 @@ List and optionally extract the contents of a given file system
 '''
 
 # imports
+from datetime import datetime
 from pathlib import Path
 from sys import stderr, stdout
 import argparse
@@ -17,9 +18,13 @@ FORMAT_TO_CLASS = {
     'ZIP': niemafs.ZipFS,
 }
 
+# return the current time as a string
+def get_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 # print log message
 def print_log(s='', end='\n', file=stdout):
-    print(s, end=end, file=file); file.flush()
+    print('[%s] %s' % (get_time(), s), end=end, file=file); file.flush()
 
 # print error message and exit
 def error(s, end='\n', file=stderr, exitcode=1):
