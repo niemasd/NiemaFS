@@ -41,7 +41,6 @@ fs = DirFS(path=target_path)
 ```
 
 ### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube mini-DVD
-
 Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps.
 
 ```python
@@ -56,6 +55,15 @@ with open(target_path, 'rb') as target_file:
 from niemafs import IsoFS
 with open(target_path, 'rb') as target_file:
     fs = IsoFS(path=target_path, file_obj=target_file)
+```
+
+### [`WiiFS`](https://niema.net/NiemaFS/#niemafs.WiiFS) — Nintendo Wii DVD
+Note that, due to the need to decrypt the filesystem, this is extremely slow and memory-intensive (each decrypted partition is loaded into memory). Optimizations are possible and may be explored in the future.
+
+```python
+from niemafs import WiiFS
+with open(target_path, 'rb') as target_file:
+    fs = WiiFS(path=target_path, file_obj=target_file)
 ```
 
 ### [`ZipFS`](https://niema.net/NiemaFS/#niemafs.ZipFS) — ZIP Archive
