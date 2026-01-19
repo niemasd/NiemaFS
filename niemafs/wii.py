@@ -322,8 +322,6 @@ class WiiFS(FileSystem):
                         cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
                         aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
                         data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
-                        if len(data_decrypted) > 0x690000: # TODO DELETE
-                            break # TODO DELETE
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
@@ -350,10 +348,10 @@ class WiiFS(FileSystem):
                 while len(to_visit) != 0:
                     file_entry = to_visit.pop()
                     if len(file_entry['children']) == 0:
-                        file_data = self.read_file(file_entry['offset'], file_entry['length'])
+                        file_entry['offset'] <<= 2 # GameCube offsets are exact, Wii offsets are >> 2
+                        file_data = data_decrypted[file_entry['offset'] : file_entry['offset'] + file_entry['length']]
                     else:
                         file_data = None
                         to_visit += file_entry['children']
                     if not file_entry['is_root']:
                         yield (partition_path / file_entry['path'], None, file_data)
-                break # TODO DELETE
