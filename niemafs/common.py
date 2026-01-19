@@ -6,11 +6,11 @@ Common variables, classes, functions, etc.
 # standard imports
 from abc import ABC, abstractmethod
 from gzip import open as gopen
+from io import DEFAULT_BUFFER_SIZE
 from pathlib import Path
 from sys import stdin, stdout
 
 # constants
-DEFAULT_BUFFER_SIZE = 1048576 # 1 MB
 DEFAULT_COMPRESS_LEVEL = 9
 
 def clean_string(s):

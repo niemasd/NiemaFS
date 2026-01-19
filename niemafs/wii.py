@@ -37,7 +37,7 @@ class WiiFS(FileSystem):
             raise ValueError("file_obj must be a file-like")
         super().__init__(path=path, file_obj=file_obj)
         self.header = None           # Header
-        self.partitions_info = None  # Partitions Information
+        self.volume_info = None      # Volume (Partitions) Information
         self.partition_tables = None # Partition Tables
         self.region_info = None      # Region Information
 
@@ -51,15 +51,15 @@ class WiiFS(FileSystem):
             self.header = self.read_file(0x0000, 0x0400)
         return self.header
 
-    def get_partitions_info(self):
-        '''Return the `Partitions Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
+    def get_volume_info(self):
+        '''Return the `Volume (Partitions) Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
 
         Returns:
-            `bytes`: The Partitions Information of the Wii disc.
+            `bytes`: The Volume (Partitions) Information of the Wii disc.
         '''
-        if self.partitions_info is None:
-            self.partitions_info = self.read_file(0x40000, 32)
-        return self.partitions_info
+        if self.volume_info is None:
+            self.volume_info = self.read_file(0x40000, 32)
+        return self.volume_info
 
     def get_partition_tables(self):
         '''Return the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>`_ of the Wii disc.
@@ -68,7 +68,7 @@ class WiiFS(FileSystem):
             `list` of `bytes`: The Partition Tables of the Wii disc.
         '''
         if self.partition_tables is None:
-            self.partition_tables = [self.read_file(parts_info['table_offset'], 8 * parts_info['num_partitions']) for parts_info in self.parse_partitions_info()]
+            self.partition_tables = [self.read_file(parts_info['table_offset'], 8 * parts_info['num_partitions']) for parts_info in self.parse_volume_info()]
         return self.partition_tables
 
     def get_region_info(self):
@@ -117,25 +117,25 @@ class WiiFS(FileSystem):
         # return final parsed data
         return out
 
-    def parse_partitions_info(self):
-        '''Return a parsed version of the `Partitions Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
+    def parse_volume_info(self):
+        '''Return a parsed version of the `Volume (Partitions) Information <https://wiibrew.org/wiki/Wii_disc#Partitions_information>`_ of the Wii disc.
 
         Returns:
-            `list` of `dict`: A parsed version of the Partitions Information of the Wii disc.
+            `list` of `dict`: A parsed version of the Volume (Partitions) Information of the Wii disc.
         '''
         # set things up
-        data = self.get_partitions_info()
+        data = self.get_volume_info()
         out = [dict(), dict(), dict(), dict()]
 
-        # parse raw Partitions Information data
-        out[0]['num_partitions'] = unpack('>I', data[0 : 4])[0]        # Number of 1st Partitions
-        out[0]['table_offset'] =   unpack('>I', data[4 : 8])[0]   << 2 # 1st Partitions Info Table Offset
-        out[1]['num_partitions'] = unpack('>I', data[8 : 12])[0]       # Number of 2nd Partitions
-        out[1]['table_offset'] =   unpack('>I', data[12 : 16])[0] << 2 # 2nd Partitions Info Table Offset
-        out[2]['num_partitions'] = unpack('>I', data[16 : 20])[0]      # Number of 3rd Partitions
-        out[2]['table_offset'] =   unpack('>I', data[20 : 24])[0] << 2 # 3rd Partitions Info Table Offset
-        out[3]['num_partitions'] = unpack('>I', data[24 : 28])[0]      # Number of 4th Partitions
-        out[3]['table_offset'] =   unpack('>I', data[28 : 32])[0] << 2 # 4th Partitions Info Table Offset
+        # parse raw Volume (Partitions) Information data
+        out[0]['num_partitions'] = unpack('>I', data[0 : 4])[0]        # Number of Volume 0 Partitions
+        out[0]['table_offset'] =   unpack('>I', data[4 : 8])[0]   << 2 # Volume 0 Info Table Offset
+        out[1]['num_partitions'] = unpack('>I', data[8 : 12])[0]       # Number of Volume 1 Partitions
+        out[1]['table_offset'] =   unpack('>I', data[12 : 16])[0] << 2 # Volum2 1 Info Table Offset
+        out[2]['num_partitions'] = unpack('>I', data[16 : 20])[0]      # Number of Volume 2 Partitions
+        out[2]['table_offset'] =   unpack('>I', data[20 : 24])[0] << 2 # Volume 2 Info Table Offset
+        out[3]['num_partitions'] = unpack('>I', data[24 : 28])[0]      # Number of Volume 3 Partitions
+        out[3]['table_offset'] =   unpack('>I', data[28 : 32])[0] << 2 # Volume 3 Info Table Offset
 
         # return final parsed data
         return out
@@ -276,9 +276,9 @@ class WiiFS(FileSystem):
         from Crypto.Cipher import AES
 
         # parse each partition table
-        for partitions_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
-            partitions_path = Path('partitions_%d' % (partitions_num+1))
-            yield (partitions_path, None, None)
+        for volume_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
+            volume_path = Path('volume_%d' % volume_num)
+            yield (volume_path, None, None)
 
             # parse each partition in the partition table
             for partition_num, partition in enumerate(parsed_partition_table):
@@ -287,35 +287,31 @@ class WiiFS(FileSystem):
                     partition_type = PARTITION_TYPE[partition['type']]
                 except:
                     partition_type = 'type%d' % partition['type']
-                partition_path = partitions_path / ('partition_%d_%s' % (partition_num+1, partition_type))
-                yield (partition_path, None, None)
                 partition_header = self.read_file(partition['offset'], 0x02C0)
-                partition_header_path = partition_path / 'partition_header'
 
                 # parse partition header: ticket
                 ticket = partition_header[0x0000 : 0x02A4]
-                yield (partition_header_path / 'ticket.bin', None, ticket)
                 parsed_ticket = WiiFS.parse_ticket(ticket)
                 aes = AES.new(COMMON_KEY[parsed_ticket['common_key_index']], AES.MODE_CBC, parsed_ticket['title_id'] + (b'\x00'*8))
                 decrypt_key = aes.decrypt(parsed_ticket['title_key'])
 
                 # parse partition header: TMD
                 tmd_size =   unpack('>I', partition_header[0x02A4 : 0x02A8])[0]
-                tmd_offset = unpack('>I', partition_header[0x02A8 : 0x02AC])[0] >> 2
-                yield (partition_header_path / 'tmd.bin', None, self.read_file(tmd_offset, tmd_size))
+                tmd_offset = unpack('>I', partition_header[0x02A8 : 0x02AC])[0] << 2
+                tmd = self.read_file(tmd_offset, tmd_size)
 
                 # parse partition header: cert chain
                 cert_chain_size =   unpack('>I', partition_header[0x02AC : 0x02B0])[0]
-                cert_chain_offset = unpack('>I', partition_header[0x02B0 : 0x02B4])[0] >> 2
-                yield (partition_header_path / 'cert.bin', None, self.read_file(cert_chain_offset, cert_chain_size))
+                cert_chain_offset = unpack('>I', partition_header[0x02B0 : 0x02B4])[0] << 2
+                cert_chain = self.read_file(cert_chain_offset, cert_chain_size)
 
                 # parse partition header: H3 table
-                h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] >> 2 # size is always 0x18000
-                yield (partition_header_path / 'h3.bin', None, self.read_file(h3_table_offset, 0x18000))
+                h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] << 2 # size is always 0x18000
+                h3_table = self.read_file(h3_table_offset, 0x18000)
 
                 # parse partition header: partition data location
-                partition_data_offset = unpack('>I', partition_header[0x02B8 : 0x02BC])[0] >> 2
-                partition_data_size =   unpack('>I', partition_header[0x02BC : 0x02C0])[0] >> 2
+                partition_data_offset = unpack('>I', partition_header[0x02B8 : 0x02BC])[0] << 2
+                partition_data_size =   unpack('>I', partition_header[0x02BC : 0x02C0])[0] << 2
 
                 # decrypt partition data: https://wiibrew.org/wiki/Wii_disc#Partition_Data
                 data_start_offset = partition['offset'] + partition_data_offset
@@ -326,13 +322,32 @@ class WiiFS(FileSystem):
                         cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
                         aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
                         data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
+                        break # TODO DELETE
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
-                # parse decrypted partition data: https://delroth.net/posts/reading-wii-discs-python/
-                # TODO decryption is working fine for both partitions: just need to figure out how to find the files
-                print(data_decrypted); exit()
-                fst_off = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2
-                str_off = fst_off + unpack('>I', data_decrypted[fst_off + 8 : fst_off + 12])[0] * 0xC
-                print(fst_off, str_off)
-                exit() # TODO
+                # parse partition code
+                partition_code = data_decrypted[0:6]
+                try:
+                    partition_code = clean_string(partition_code)
+                except:
+                    warn("Unable to parse volume %d partition %d partition code as string: %s" % (volume_num, partition_num, partition_code))
+
+                # yield partition header data
+                partition_path = volume_path / ('partition_%d_%s_%s' % (partition_num, partition_type, partition_code))
+                yield (partition_path, None, None)
+                partition_header_path = partition_path / 'partition_header'
+                yield (partition_header_path / 'ticket.bin', None, ticket)
+                yield (partition_header_path / 'tmd.bin', None, tmd)
+                yield (partition_header_path / 'cert.bin', None, cert_chain)
+                yield (partition_header_path / 'h3.bin', None, h3_table)
+                print(data_decrypted[:100])
+            exit() # TODO DELETE
+
+                # parse decrypted data: update partition: https://wiibrew.org/wiki/Wii_disc#Update_partition
+                #fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2 # Offset of FST
+                #fst_size =   unpack('>I', data_decrypted[0x0248 : 0x024C])[0]      # Size of FST
+                #fst = data_decrypted[fst_offset : fst_offset + fst_size]
+                #print(fst_offset, fst_size)
+                #print(fst)
+                #exit() # TODO
