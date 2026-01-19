@@ -5,6 +5,7 @@ Handle Nintendo Wii DVD file system
 
 # NiemaFS imports
 from niemafs.common import clean_string, FileSystem
+from niemafs.gcm import GcmFS
 
 # imports
 from datetime import datetime
@@ -276,7 +277,7 @@ class WiiFS(FileSystem):
 
         # parse each partition table
         for volume_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
-            volume_path = Path('volume_%d' % volume_num)
+            volume_path = Path('Volume %d' % volume_num)
             yield (volume_path, None, None)
 
             # parse each partition in the partition table
@@ -321,7 +322,8 @@ class WiiFS(FileSystem):
                         cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
                         aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
                         data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
-                        break # TODO DELETE
+                        if len(data_decrypted) > 0x00690000: # TODO DELETE
+                            break # TODO DELETE
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
@@ -335,10 +337,11 @@ class WiiFS(FileSystem):
                 yield (partition_header_path / 'cert.bin', None, cert_chain)
                 yield (partition_header_path / 'h3.bin', None, h3_table)
 
-                # parse decrypted data: update partition: https://wiibrew.org/wiki/Wii_disc#Update_partition
+                # parse decrypted data, similar to GameCube: https://github.com/niemasd/NiemaFS/blob/ffee20d1816de4f78cfabd9e16ca8038b2dabc07/niemafs/gcm.py#L204-L220
                 fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2 # Offset of FST
-                fst_size =   unpack('>I', data_decrypted[0x0248 : 0x024C])[0]      # Size of FST
-                fst = data_decrypted[fst_offset : fst_offset + fst_size]
-                print(fst_offset, fst_size)
-                print(fst)
-                #exit() # TODO
+                file_entries = [GcmFS.parse_fst_entry(data_decrypted[fst_offset : fst_offset + 0x0C])] # root directory entry
+                num_entries = file_entries[0]['length']
+                string_table_start = 0x0C * num_entries
+                string_table = data_decrypted[string_table_start:]
+                file_entries += [GcmFS.parse_fst_entry(data_decrypted[i:i+0x0C]) for i in range(0x0C, string_table_start, 0x0C)] # rest of file entries
+                print(file_entries)
