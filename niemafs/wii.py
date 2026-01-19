@@ -81,14 +81,13 @@ class WiiFS(FileSystem):
             self.region_info = self.read_file(0x4E000, 32)
         return self.region_info
 
-    def parse_header(self):
-        '''Return a parsed version of the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc.
+    def parse_header(data):
+        '''Return a parsed version of the `Header <https://wiibrew.org/wiki/Wii_disc#Header>`_ of the Wii disc or partition.
 
         Returns:
-            `dict`: A parsed version of the Header of the Wii disc.
+            `dict`: A parsed version of the Header of the Wii disc or partition.
         '''
         # set things up
-        data = self.get_header()
         out = dict()
 
         # parse raw Header data
@@ -316,7 +315,7 @@ class WiiFS(FileSystem):
                 # decrypt partition data: https://wiibrew.org/wiki/Wii_disc#Partition_Data
                 data_start_offset = partition['offset'] + partition_data_offset
                 data_end_offset = data_start_offset + partition_data_size
-                if self.parse_header()['disable_disc_encryption'] == 0:
+                if WiiFS.parse_header(self.get_header())['disable_disc_encryption'] == 0:
                     data_decrypted = b''
                     for cluster_offset in range(data_start_offset, data_end_offset, 0x8000):
                         cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
@@ -326,28 +325,20 @@ class WiiFS(FileSystem):
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
-                # parse partition code
-                partition_code = data_decrypted[0:6]
-                try:
-                    partition_code = clean_string(partition_code)
-                except:
-                    warn("Unable to parse volume %d partition %d partition code as string: %s" % (volume_num, partition_num, partition_code))
-
                 # yield partition header data
-                partition_path = volume_path / ('partition_%d_%s_%s' % (partition_num, partition_type, partition_code))
+                partition_header = WiiFS.parse_header(data_decrypted[0x0000 : 0x0420])
+                partition_path = volume_path / ('Partition %d (%s) (%s%s) (%s)' % (partition_num, partition_type.capitalize(), partition_header['game_code'], partition_header['maker_code'], partition_header['game_name']))
                 yield (partition_path, None, None)
                 partition_header_path = partition_path / 'partition_header'
                 yield (partition_header_path / 'ticket.bin', None, ticket)
                 yield (partition_header_path / 'tmd.bin', None, tmd)
                 yield (partition_header_path / 'cert.bin', None, cert_chain)
                 yield (partition_header_path / 'h3.bin', None, h3_table)
-                print(data_decrypted[:100])
-            exit() # TODO DELETE
 
                 # parse decrypted data: update partition: https://wiibrew.org/wiki/Wii_disc#Update_partition
-                #fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2 # Offset of FST
-                #fst_size =   unpack('>I', data_decrypted[0x0248 : 0x024C])[0]      # Size of FST
-                #fst = data_decrypted[fst_offset : fst_offset + fst_size]
-                #print(fst_offset, fst_size)
-                #print(fst)
+                fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2 # Offset of FST
+                fst_size =   unpack('>I', data_decrypted[0x0248 : 0x024C])[0]      # Size of FST
+                fst = data_decrypted[fst_offset : fst_offset + fst_size]
+                print(fst_offset, fst_size)
+                print(fst)
                 #exit() # TODO
