@@ -198,14 +198,16 @@ class WiiFS(FileSystem):
         return out
 
     def parse_ticket(data):
-        '''Return a parsed version of the `Ticket <https://wiibrew.org/wiki/Ticket>`_ of the Wii disc.
+        '''Return a parsed version of a `Ticket <https://wiibrew.org/wiki/Ticket>`_ of the Wii disc.
+
+        Args:
+            `data` (`bytes`): The raw Ticket data.
 
         Returns:
-            `dict`: A parsed version of the Ticket of the Wii disc.
+            `dict`: A parsed version of a Ticket of the Wii disc.
         '''
         # set things up
         out = dict()
-        out = {'header':dict(), 'v0':dict(), 'v1':dict()}
 
         # parse Signed Blob Header: https://wiibrew.org/wiki/Ticket#Signed_blob_header
         out['signature_type'] =        data[0x0000 : 0x0004] # Signature Type (0x10001 for RSA-2048)
@@ -285,6 +287,9 @@ class WiiFS(FileSystem):
                     partition_type = PARTITION_TYPE[partition['type']]
                 except:
                     partition_type = 'type%d' % partition['type']
+                if partition_type != 'data':
+                    warn("Skipping partition of type '%s' (only 'data' partitions are currently supported)" % partition_type)
+                    continue # TODO IMPLEMENT OTHER PARTITION TYPES
                 partition_path = partitions_path / ('partition_%d_%s' % (partition_num+1, partition_type))
                 yield (partition_path, None, None)
                 partition_header = self.read_file(partition['offset'], 0x02C0)
@@ -292,7 +297,7 @@ class WiiFS(FileSystem):
 
                 # parse partition header: ticket
                 ticket = partition_header[0x0000 : 0x02A4]
-                yield (partition_header_path / 'ticket.tik', None, ticket)
+                yield (partition_header_path / 'ticket.bin', None, ticket)
                 parsed_ticket = WiiFS.parse_ticket(ticket)
                 aes = AES.new(COMMON_KEY[parsed_ticket['common_key_index']], AES.MODE_CBC, parsed_ticket['title_id'] + (b'\x00'*8))
                 decrypt_key = aes.decrypt(parsed_ticket['title_key'])
@@ -300,16 +305,16 @@ class WiiFS(FileSystem):
                 # parse partition header: TMD
                 tmd_size =   unpack('>I', partition_header[0x02A4 : 0x02A8])[0]
                 tmd_offset = unpack('>I', partition_header[0x02A8 : 0x02AC])[0] >> 2
-                yield (partition_header_path / 'title.tmd', None, self.read_file(tmd_offset, tmd_size))
+                yield (partition_header_path / 'tmd.bin', None, self.read_file(tmd_offset, tmd_size))
 
                 # parse partition header: cert chain
                 cert_chain_size =   unpack('>I', partition_header[0x02AC : 0x02B0])[0]
                 cert_chain_offset = unpack('>I', partition_header[0x02B0 : 0x02B4])[0] >> 2
-                yield (partition_header_path / 'cert.sys', None, self.read_file(cert_chain_offset, cert_chain_size))
+                yield (partition_header_path / 'cert.bin', None, self.read_file(cert_chain_offset, cert_chain_size))
 
                 # parse partition header: H3 table
                 h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] >> 2 # size is always 0x18000
-                yield (partition_header_path / 'table.h3', None, self.read_file(h3_table_offset, 0x18000))
+                yield (partition_header_path / 'h3.bin', None, self.read_file(h3_table_offset, 0x18000))
 
                 # parse partition header: partition data location
                 partition_data_offset = unpack('>I', partition_header[0x02B8 : 0x02BC])[0] >> 2
@@ -327,5 +332,8 @@ class WiiFS(FileSystem):
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
-                # parse decrypted partition data
-                print(data_decrypted); exit() # TODO
+                # parse decrypted partition data: https://delroth.net/posts/reading-wii-discs-python/
+                fst_off = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2
+                str_off = fst_off + unpack('>I', data_decrypted[fst_off + 8 : fst_off + 12])[0] * 0xC
+                print(fst_off, str_off)
+                exit() # TODO
