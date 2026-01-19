@@ -13,6 +13,11 @@ from struct import unpack
 from warnings import warn
 
 # constants
+PARTITION_TYPE = [
+    'data',              # type 0
+    'update',            # type 1
+    'channel_installer', # type 2
+]
 REGION = {
     0: 'Japan/Taiwan',
     1: 'USA',
@@ -197,7 +202,11 @@ class WiiFS(FileSystem):
             # parse each partition in the partition table
             for partition_num, partition in enumerate(parsed_partition_table):
                 # load partition header
-                partition_path = partitions_path / ('partition_%d' % (partition_num+1))
+                try:
+                    partition_type = PARTITION_TYPE[partition['type']]
+                except:
+                    partition_type = 'type%d' % partition['type']
+                partition_path = partitions_path / ('partition_%d_%s' % (partition_num+1, partition_type))
                 yield (partition_path, None, None)
                 partition_header = self.read_file(partition['offset'], 0x02C0)
                 partition_header_path = partition_path / 'partition_header'
@@ -219,4 +228,8 @@ class WiiFS(FileSystem):
                 # parse partition header: H3 table
                 h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] >> 2 # size is always 0x18000
                 yield (partition_header_path / 'table.h3', None, self.read_file(h3_table_offset, 0x18000))
-                #print(partition) # TODO PARSE THIS PARTITION: https://wiibrew.org/wiki/Wii_disc#Partition
+
+                # parse partition header: data
+                partition_data_offset = unpack('>I', partition_header[0x02B8 : 0x02BC])[0] >> 2
+                partition_data_size =   unpack('>I', partition_header[0x02BC : 0x02C0])[0] >> 2
+                print(partition, partition_data_offset, partition_data_size) # TODO PARSE THIS PARTITION: https://wiibrew.org/wiki/Wii_disc#Partition
