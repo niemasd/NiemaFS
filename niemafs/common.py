@@ -13,20 +13,32 @@ from sys import stdin, stdout
 # constants
 DEFAULT_BUFFER_SIZE = 8388608 # 8 MB
 DEFAULT_COMPRESS_LEVEL = 9
+SAFE_CHARS = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-')
 
 def clean_string(s):
-    '''Clean a string (binary or normal) by right-stripping 0x00 and spaces
+    '''Clean a string (binary or normal) by right-stripping 0x00 and spaces.
 
     Args:
-        `s` (`bytes`): The ISO 9660 string to clean
+        `s` (`bytes`): The ISO 9660 string to clean.
 
     Returns:
-        `str`: The cleaned string
+        `str`: The cleaned string.
     '''
     if isinstance(s, bytes):
         return s.rstrip(b'\x00').decode().rstrip()
     else:
         return s.rstrip()
+
+def safename(s):
+    '''Convert a string into a version that is safe for a filename
+    
+    Args:
+        `s` (`str`): The original string.
+
+    Returns:
+        `str`: A version of `s` that is safe for a filename.
+    '''
+    return ''.join(c if c in SAFE_CHARS else '_' for c in s)
 
 def open_file(path, mode='rb', buffering=DEFAULT_BUFFER_SIZE, compresslevel=DEFAULT_COMPRESS_LEVEL):
     '''Open a file for reading, writing, or appending. Automatically handles GZIP compression.

@@ -58,7 +58,7 @@ with open(target_path, 'rb') as target_file:
 ```
 
 ### [`WiiFS`](https://niema.net/NiemaFS/#niemafs.WiiFS) — Nintendo Wii DVD
-Note that, due to the need to decrypt the filesystem, this is extremely slow and memory-intensive (each decrypted partition is loaded into memory). Optimizations are possible and may be explored in the future.
+Note that, due to the need to decrypt the filesystem, this is extremely memory-intensive (each partition is loaded into memory to process in parallel for speed).
 
 ```python
 from niemafs import WiiFS

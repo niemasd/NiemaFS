@@ -4,11 +4,13 @@ Handle Nintendo Wii DVD file system
 '''
 
 # NiemaFS imports
-from niemafs.common import clean_string, FileSystem
+from niemafs.common import clean_string, FileSystem, safename
 from niemafs.gcm import GcmFS
 
 # imports
+from Crypto.Cipher import AES
 from datetime import datetime
+from multiprocessing import Pool
 from pathlib import Path
 from struct import unpack
 from warnings import warn
@@ -29,6 +31,12 @@ REGION = {
     2: 'PAL',
     4: 'Korea',
 }
+
+# helper function for multiprocessing of AES decryption
+def aes_helper(aes_tup):
+    decrypt_key, cluster_data_encrypted = aes_tup
+    aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
+    return aes.decrypt(cluster_data_encrypted[0x0400:])
 
 class WiiFS(FileSystem):
     '''Class to represent a `Nintendo Wii DVD <https://wiibrew.org/wiki/Wii_disc#%22System_Area%22>`_.'''
@@ -272,9 +280,6 @@ class WiiFS(FileSystem):
         return out
 
     def __iter__(self):
-        # import PyCryptodome within WiiFS to allow people to use the other NiemaFS classes without it
-        from Crypto.Cipher import AES
-
         # parse each partition table
         for volume_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
             volume_path = Path('Volume %d' % volume_num)
@@ -317,19 +322,16 @@ class WiiFS(FileSystem):
                 data_start_offset = partition['offset'] + partition_data_offset
                 data_end_offset = data_start_offset + partition_data_size
                 if WiiFS.parse_header(self.get_header())['disable_disc_encryption'] == 0:
-                    data_decrypted = b''
-                    for cluster_offset in range(data_start_offset, data_end_offset, 0x8000):
-                        cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
-                        aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
-                        data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
+                    with Pool(processes=None) as pool:
+                        data_decrypted = b''.join(pool.map(aes_helper, [(decrypt_key, self.read_file(cluster_offset, 0x8000)) for cluster_offset in range(data_start_offset, data_end_offset, 0x8000)]))
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
                 # yield partition header data
                 partition_header = WiiFS.parse_header(data_decrypted[0x0000 : 0x0420])
-                partition_path = volume_path / ('Partition %d (%s) (%s%s) (%s)' % (partition_num, partition_type.capitalize(), partition_header['game_code'], partition_header['maker_code'], partition_header['game_name']))
+                partition_path = volume_path / ('Partition %d (%s) (%s%s) (%s)' % (partition_num, partition_type.capitalize(), partition_header['game_code'], partition_header['maker_code'], safename(partition_header['game_name'])))
                 yield (partition_path, None, None)
-                partition_header_path = partition_path / '__PARTITION_HEADER_NIEMAFS'
+                partition_header_path = partition_path / '___PARTITION_HEADER_NIEMAFS'
                 yield (partition_header_path, None, None)
                 yield (partition_header_path / 'ticket.bin', None, ticket)
                 yield (partition_header_path / 'tmd.bin', None, tmd)
