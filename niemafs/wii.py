@@ -13,6 +13,10 @@ from struct import unpack
 from warnings import warn
 
 # constants
+COMMON_KEY = [
+    b"\xEB\xE4\x2A\x22\x5E\x85\x93\xE4\x48\xD9\xC5\x45\x73\x81\xAA\xF7", # Common Key: https://github.com/grp/Wii.py/blob/6978355656ac73aa73ef1eea0f52c50644010b56/title.py#L76
+    b"\x63\xB8\x2B\xB4\xF4\x61\x4E\x2E\x13\xF2\xFE\xFB\xBA\x4C\x9B\x7E", # Korean Key: https://github.com/grp/Wii.py/blob/6978355656ac73aa73ef1eea0f52c50644010b56/title.py#L77
+]
 PARTITION_TYPE = [
     'data',              # type 0
     'update',            # type 1
@@ -137,7 +141,7 @@ class WiiFS(FileSystem):
         return out
 
     def parse_partition_tables(self):
-        '''Return a parsed version of the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>` of the Wii disc.
+        '''Return a parsed version of the `Partition Tables <https://wiibrew.org/wiki/Wii_disc#Partition_table_entry>`_ of the Wii disc.
 
         Returns:
             `list` of `dict`: A parsed version of the Partition Tables
@@ -193,7 +197,82 @@ class WiiFS(FileSystem):
         # return final parsed data
         return out
 
+    def parse_ticket(data):
+        '''Return a parsed version of the `Ticket <https://wiibrew.org/wiki/Ticket>`_ of the Wii disc.
+
+        Returns:
+            `dict`: A parsed version of the Ticket of the Wii disc.
+        '''
+        # set things up
+        out = dict()
+        out = {'header':dict(), 'v0':dict(), 'v1':dict()}
+
+        # parse Signed Blob Header: https://wiibrew.org/wiki/Ticket#Signed_blob_header
+        out['signature_type'] =        data[0x0000 : 0x0004] # Signature Type (0x10001 for RSA-2048)
+        out['signature_by_cert_key'] = data[0x0004 : 0x0104] # Signature by a Certificate's Key
+        out['padding_module_64'] =     data[0x0104 : 0x0140] # Padding Module 64
+
+        # parse v0 Ticket: https://wiibrew.org/wiki/Ticket#Signed_blob_header
+        out['signature_issuer'] =           data[0x0140 : 0x0180]                  # Signature Issuer
+        out['ecdh'] =                       data[0x0180 : 0x01BC]                  # ECDH Data (used to generate one-time key during install of console specific titles)
+        out['ticket_format_version'] =      data[0x01BC]                           # Ticket Format Version
+        out['offsets_0x01BD_0x01BE'] =      data[0x01BD : 0x01BF]                  # Reserved
+        out['title_key'] =                  data[0x01BF : 0x01CF]                  # Title Key (encrypted by Common Key)
+        out['offset_0x01CF'] =              data[0x01CF]                           # Unknown
+        out['ticket_id'] =                  data[0x01D0 : 0x01D8]                  # Ticket ID (used as Initialization Vector (IV) for title key decryption of console specific titles)
+        out['console_id'] =                 data[0x01D8 : 0x01DC]                  # Console ID (NG ID in console specific titles: https://wiibrew.org/wiki/Hardware/OTP)
+        out['title_id'] =                   data[0x01DC : 0x01E4]                  # Title ID (used as Initialization Vector (IV) for AES-CBC encryption)
+        out['offsets_0x01E4_0x01E5'] =      data[0x01E4 : 0x01E6]                  # Unknown (usually 0xFFFF)
+        out['ticket_title_version'] =       unpack('>H', data[0x01E6 : 0x01E8])[0] # Ticket Title Version
+        out['permitted_titles_mask'] =      data[0x01E8 : 0x01EC]                  # Permitted Titles Mask
+        out['permit_mask'] =                data[0x01EC : 0x01F0]                  # Permit Mask (disk title is ANDed with inverse of this mask to see if result matches Permitted Titles Mask)
+        out['title_export_allowed'] =       data[0x01F0]                           # Title Export allowed using PRNG key (1 = allowed, 0 = not allowed)
+        out['common_key_index'] =           data[0x01F1]                           # Common Key Index (0 = Common Key, 1 = Korean Key, 2 = Wii U Wii Mode)
+        out['offsets_0x01F2_0x01F4'] =      data[0x01F2 : 0x01F5]                  # Unknown
+        out['offsets_0x01F5_0x0221'] =      data[0x01F5 : 0x0222]                  # Unknown
+        out['content_access_permissions'] = data[0x0222 : 0x0262]                  # Content Access Permissions (1 bit for each content)
+        out['offsets_0x0262_0x0263'] =      data[0x0262 : 0x0264]                  # Padding (always 0s)
+        out['limit_type_1'] =               unpack('>I', data[0x0264 : 0x0268])[0] # Limit Type 1 (0 = disable, 1 = time limit (minutes), 3 = disable, 4 = launch count limit)
+        out['max_usage_1'] =                unpack('>I', data[0x0268 : 0x026C])[0] # Maximum Usage 1 (depending on limit type)
+        out['limit_type_2'] =               unpack('>I', data[0x026C : 0x0270])[0] # Limit Type 2
+        out['max_usage_2'] =                unpack('>I', data[0x0270 : 0x0274])[0] # Maximum Usage 2
+        out['limit_type_3'] =               unpack('>I', data[0x0274 : 0x0278])[0] # Limit Type 3
+        out['max_usage_3'] =                unpack('>I', data[0x0278 : 0x027C])[0] # Maximum Usage 3
+        out['limit_type_4'] =               unpack('>I', data[0x027C : 0x0280])[0] # Limit Type 4
+        out['max_usage_4'] =                unpack('>I', data[0x0280 : 0x0284])[0] # Maximum Usage 4
+        out['limit_type_5'] =               unpack('>I', data[0x0284 : 0x0288])[0] # Limit Type 5
+        out['max_usage_5'] =                unpack('>I', data[0x0288 : 0x028C])[0] # Maximum Usage 5
+        out['limit_type_6'] =               unpack('>I', data[0x028C : 0x0290])[0] # Limit Type 6
+        out['max_usage_6'] =                unpack('>I', data[0x0290 : 0x0294])[0] # Maximum Usage 6
+        out['limit_type_7'] =               unpack('>I', data[0x0294 : 0x0298])[0] # Limit Type 7
+        out['max_usage_7'] =                unpack('>I', data[0x0298 : 0x029C])[0] # Maximum Usage 7
+        out['limit_type_8'] =               unpack('>I', data[0x029C : 0x02A0])[0] # Limit Type 8
+        out['max_usage_8'] =                unpack('>I', data[0x02A0 : 0x02A4])[0] # Maximum Usage 8
+
+        # parse v1 Ticket: https://wiibrew.org/wiki/Ticket#v1_ticket
+        if len(data) > 0x02A4:
+            out['v1_header_version'] =         unpack('>H', data[0x02A4 : 0x02A6])[0] # v1 Ticket Header Version
+            out['v1_header_size'] =            unpack('>H', data[0x02A6 : 0x02A8])[0] # v1 Ticket Header Size
+            out['v1_ticket_size'] =            unpack('>I', data[0x02A8 : 0x02AC])[0] # v1 Ticket Size (0x14?)
+            out['v1_section_headers_offset'] = unpack('>I', data[0x02AC : 0x02B0])[0] # v1 Offset of Section Headers
+            out['v1_section_headers_count'] =  unpack('>H', data[0x02B0 : 0x02B2])[0] # v1 Number of Section Headers
+            out['v1_section_headers_size'] =   unpack('>H', data[0x02B2 : 0x02B4])[0] # v1 Size of Each Section Header (0x14?)
+            out['v1_misc_flags'] =             data[0x02B4 : 0x02B8]                  # v1 Miscellaneous Flags
+
+        # clean strings
+        for k in ['signature_issuer']:
+            try:
+                out[k] = clean_string(out[k])
+            except:
+                warn("Unable to parse Ticket '%s' as string: %s" % (k, out[k]))
+
+        # return final parsed data
+        return out
+
     def __iter__(self):
+        # import PyCryptodome within WiiFS to allow people to use the other NiemaFS classes without it
+        from Crypto.Cipher import AES
+
         # parse each partition table
         for partitions_num, parsed_partition_table in enumerate(self.parse_partition_tables()):
             partitions_path = Path('partitions_%d' % (partitions_num+1))
@@ -214,6 +293,9 @@ class WiiFS(FileSystem):
                 # parse partition header: ticket
                 ticket = partition_header[0x0000 : 0x02A4]
                 yield (partition_header_path / 'ticket.tik', None, ticket)
+                parsed_ticket = WiiFS.parse_ticket(ticket)
+                aes = AES.new(COMMON_KEY[parsed_ticket['common_key_index']], AES.MODE_CBC, parsed_ticket['title_id'] + (b'\x00'*8))
+                decrypt_key = aes.decrypt(parsed_ticket['title_key'])
 
                 # parse partition header: TMD
                 tmd_size =   unpack('>I', partition_header[0x02A4 : 0x02A8])[0]
@@ -229,7 +311,21 @@ class WiiFS(FileSystem):
                 h3_table_offset = unpack('>I', partition_header[0x02B4 : 0x02B8])[0] >> 2 # size is always 0x18000
                 yield (partition_header_path / 'table.h3', None, self.read_file(h3_table_offset, 0x18000))
 
-                # parse partition header: data
+                # parse partition header: partition data location
                 partition_data_offset = unpack('>I', partition_header[0x02B8 : 0x02BC])[0] >> 2
                 partition_data_size =   unpack('>I', partition_header[0x02BC : 0x02C0])[0] >> 2
-                print(partition, partition_data_offset, partition_data_size) # TODO PARSE THIS PARTITION: https://wiibrew.org/wiki/Wii_disc#Partition
+
+                # decrypt partition data: https://wiibrew.org/wiki/Wii_disc#Partition_Data
+                data_start_offset = partition['offset'] + partition_data_offset
+                data_end_offset = data_start_offset + partition_data_size
+                if self.parse_header()['disable_disc_encryption'] == 0:
+                    data_decrypted = b''
+                    for cluster_offset in range(data_start_offset, data_end_offset, 0x8000):
+                        cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
+                        aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
+                        data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
+                else:
+                    data_decrypted = self.read_file(data_start_offset, partition_data_size)
+
+                # parse decrypted partition data
+                print(data_decrypted); exit() # TODO
