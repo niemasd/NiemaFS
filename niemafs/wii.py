@@ -287,9 +287,6 @@ class WiiFS(FileSystem):
                     partition_type = PARTITION_TYPE[partition['type']]
                 except:
                     partition_type = 'type%d' % partition['type']
-                if partition_type != 'data':
-                    warn("Skipping partition of type '%s' (only 'data' partitions are currently supported)" % partition_type)
-                    continue # TODO IMPLEMENT OTHER PARTITION TYPES
                 partition_path = partitions_path / ('partition_%d_%s' % (partition_num+1, partition_type))
                 yield (partition_path, None, None)
                 partition_header = self.read_file(partition['offset'], 0x02C0)
@@ -333,6 +330,8 @@ class WiiFS(FileSystem):
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
 
                 # parse decrypted partition data: https://delroth.net/posts/reading-wii-discs-python/
+                # TODO decryption is working fine for both partitions: just need to figure out how to find the files
+                print(data_decrypted); exit()
                 fst_off = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2
                 str_off = fst_off + unpack('>I', data_decrypted[fst_off + 8 : fst_off + 12])[0] * 0xC
                 print(fst_off, str_off)
