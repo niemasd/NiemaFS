@@ -11,6 +11,7 @@ from pathlib import Path
 from sys import stdin, stdout
 
 # constants
+DEFAULT_BUFFER_SIZE = 8388608 # 8 MB
 DEFAULT_COMPRESS_LEVEL = 9
 
 def clean_string(s):
