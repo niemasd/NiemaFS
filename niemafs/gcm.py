@@ -43,29 +43,6 @@ class GcmFS(FileSystem):
             data = data.decode()
         return datetime.strptime(data, '%Y/%m/%d')
 
-    def parse_fst_entry(data):
-        '''Parse a `File System Table (FST) entry <https://www.gc-forever.com/yagcd/chap13.html#sec13.4.1>`_.
-
-        Args:
-            `data` (`bytes`): The raw bytes of the FST entry.
-
-        Returns:
-            `dict`: The parsed FST entry.
-        '''
-        # set things up
-        if len(data) != 12:
-            raise ValueError("FST entries must be exactly 12 bytes in length: %s" % data)
-        out = dict()
-
-        # parse raw FST entry data
-        out['is_dir'] = bool(data[0x00])                             # Flags: 0 = file, 1 = directory
-        out['name'] =   unpack('>I', b'\x00' + data[0x01 : 0x04])[0] # Filename as Offset into String Table
-        out['offset'] = unpack('>I', data[0x04 : 0x08])[0]           # File Offset (for files) or Parent Offset (for directories)
-        out['length'] = unpack('>I', data[0x08 : 0x0C])[0]           # File Size (for files) or Number of Entries (for root) or Next Offset (for directories)
-
-        # return final parsed data
-        return out
-
     def get_boot_bin(self):
         '''Return the `Disk Header ("boot.bin") <https://www.gc-forever.com/yagcd/chap13.html#sec13.1>`_ of the GCM.
 
@@ -201,36 +178,87 @@ class GcmFS(FileSystem):
         # return final parsed data
         return out
 
+    def get_string_table(data, string_table_start, num_fst_entries): # TODO DELETE
+        '''Get the string table from the File System Table (FST)'s raw data.
+
+        Args:
+            `data` (`bytes`): The raw bytes of the FST.
+
+            `string_table_start` (`int`): The start offset of the string table.
+
+            `num_fst_entries` (`int`): The number of entries in the FST.
+
+        Returns:
+            `bytes`: The string table.
+        '''
+        string_table_end = string_table_start
+        for i in range(num_fst_entries-1): # FST includes root directory, which isn't in string table
+            string_table_end = data.find(b'\00', string_table_end + 1)
+        return data[string_table_start : string_table_end + 1] # include the last b'\x00'
+
+    def parse_fst(fst_ind, parent_path, fst, string_table_start):
+        '''Recursively parse the `File System Table (FST) <https://www.gc-forever.com/yagcd/chap13.html#sec13.4.1>`_.
+
+        Args:
+            `fst_ind` (`int`): This entry's index in the FST.
+
+            `parent_path` (`Path`): The local `Path` of parent of this file/directory, or `None` if this is the root directory.
+
+            `fst` (`bytes`): The raw bytes of the FST.
+
+            `string_table_start` (`int`): Offset in the FST where the string table begins.
+
+        Returns:
+            `dict`: The root of the parsed FST.
+        '''
+        # set things up
+        out = {'children':list(), 'is_root':False}
+
+        # parse raw FST entry data
+        entry_start_offset = fst_ind * 12
+        is_dir =        bool(fst[entry_start_offset])                                                   # Flags: 0 = file, 1 = directory
+        st_index =      unpack('>I', b'\x00' + fst[entry_start_offset + 1 : entry_start_offset + 4])[0] # Filename as Offset into String Table
+        out['offset'] = unpack('>I', fst[entry_start_offset + 4 : entry_start_offset + 8])[0]           # File Offset (for files) or Parent Offset (for directories)
+        out['length'] = unpack('>I', fst[entry_start_offset + 8 : entry_start_offset + 12])[0]          # File Size (for files) or Number of Entries (for root) or Next Offset (for directories
+
+        # determine path
+        if parent_path is None: # root
+            out['path'] = Path('.')
+            out['is_root'] = True
+        else: # non-root
+            fn_fst_offset = string_table_start + st_index
+            fn = fst[fn_fst_offset : fst.find(b'\x00', fn_fst_offset)]
+            try:
+                fn = fn.decode()
+            except:
+                warn("Failed to parse filename as string: %s" % fn)
+                fn = str(fn)
+            out['path'] = parent_path / fn
+
+        # if directory, recursively parse children
+        if is_dir:
+            fst_ind += 1
+            while fst_ind < out['length']:
+                child = GcmFS.parse_fst(fst_ind, out['path'], fst, string_table_start)
+                fst_ind = child['fst_ind_next']
+                out['children'].append(child)
+            out['fst_ind_next'] = fst_ind
+        else:
+            out['fst_ind_next'] = fst_ind + 1
+
+        # return final parsed data
+        return out
+
     def __iter__(self):
         fst = self.get_fst_bin()
-        file_entries = [GcmFS.parse_fst_entry(fst[0x00 : 0x0C])] # root directory entry
-        num_entries = file_entries[0]['length']
-        string_table_start = 0x0C * num_entries
-        string_table = fst[string_table_start:]
-        file_entries += [GcmFS.parse_fst_entry(fst[i:i+0x0C]) for i in range(0x0C, string_table_start, 0x0C)] # rest of file entries
-        for i, file_entry in enumerate(file_entries):
-            if i == 0: # handle root
-                file_entry['name'] = None # root doesn't have a name
-                file_entry['Path'] = Path('.')
-            else: # handle non-root
-                # parse filename
-                file_entry['name'] = string_table[file_entry['name'] : string_table.find(b'\x00', file_entry['name'])]
-                try:
-                    file_entry['name'] = clean_string(file_entry['name'])
-                except:
-                    warn("Unable to parse filename as string: %s" % file_entry['name'])
-
-                # determine Path
-                if file_entry['is_dir']: # directory
-                    file_entry['Path'] = file_entries[file_entry['offset']]['Path'] / file_entry['name']
-                elif file_entries[i-1]['is_dir']: # file preceded by a directory
-                    file_entry['Path'] = file_entries[i-1]['Path'] / file_entry['name']
-                else: # file preceded by a file
-                    file_entry['Path'] = file_entries[i-1]['Path'].parent / file_entry['name']
-
-                # yield entry
-                if file_entry['is_dir']:
-                    file_data = None
-                else:
-                    file_data = self.read_file(file_entry['offset'], file_entry['length'])
-                yield (file_entry['Path'], None, file_data)
+        string_table_start = 0x0C * unpack('>I', fst[0x08 : 0x0C])[0]
+        to_visit = [GcmFS.parse_fst(0, None, fst, string_table_start)] # start at root directory
+        while len(to_visit) != 0:
+            file_entry = to_visit.pop()
+            if len(file_entry['children']) == 0:
+                file_data = self.read_file(file_entry['offset'], file_entry['length'])
+            else:
+                file_data = None
+                to_visit += file_entry['children']
+            if not file_entry['is_root']:
+                yield (file_entry['path'], None, file_data)
