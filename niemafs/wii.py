@@ -322,7 +322,7 @@ class WiiFS(FileSystem):
                         cluster_data_encrypted = self.read_file(cluster_offset, 0x8000)
                         aes = AES.new(decrypt_key, AES.MODE_CBC, cluster_data_encrypted[0x3D0 : 0x3E0])
                         data_decrypted += aes.decrypt(cluster_data_encrypted[0x0400:])
-                        if len(data_decrypted) > 0x00690000: # TODO DELETE
+                        if len(data_decrypted) > 0x690000: # TODO DELETE
                             break # TODO DELETE
                 else:
                     data_decrypted = self.read_file(data_start_offset, partition_data_size)
@@ -331,17 +331,29 @@ class WiiFS(FileSystem):
                 partition_header = WiiFS.parse_header(data_decrypted[0x0000 : 0x0420])
                 partition_path = volume_path / ('Partition %d (%s) (%s%s) (%s)' % (partition_num, partition_type.capitalize(), partition_header['game_code'], partition_header['maker_code'], partition_header['game_name']))
                 yield (partition_path, None, None)
-                partition_header_path = partition_path / 'partition_header'
+                partition_header_path = partition_path / '__PARTITION_HEADER_NIEMAFS'
+                yield (partition_header_path, None, None)
                 yield (partition_header_path / 'ticket.bin', None, ticket)
                 yield (partition_header_path / 'tmd.bin', None, tmd)
                 yield (partition_header_path / 'cert.bin', None, cert_chain)
                 yield (partition_header_path / 'h3.bin', None, h3_table)
 
-                # parse decrypted data, similar to GameCube: https://github.com/niemasd/NiemaFS/blob/ffee20d1816de4f78cfabd9e16ca8038b2dabc07/niemafs/gcm.py#L204-L220
-                fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2 # Offset of FST
-                file_entries = [GcmFS.parse_fst_entry(data_decrypted[fst_offset : fst_offset + 0x0C])] # root directory entry
-                num_entries = file_entries[0]['length']
-                string_table_start = 0x0C * num_entries
-                string_table = data_decrypted[string_table_start:]
-                file_entries += [GcmFS.parse_fst_entry(data_decrypted[i:i+0x0C]) for i in range(0x0C, string_table_start, 0x0C)] # rest of file entries
-                print(file_entries)
+                # parse decrypted data, similar to GameCube: https://github.com/niemasd/NiemaFS/blob/main/niemafs/gcm.py
+                fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2
+                num_entries = unpack('>I', data_decrypted[fst_offset + 8 : fst_offset + 12])[0]
+                string_table_start = fst_offset + (12 * num_entries)
+                string_table_end = string_table_start
+                for _ in range(num_entries - 1):
+                    string_table_end = data_decrypted.index(b'\00', string_table_end + 1)
+                fst = data_decrypted[fst_offset : string_table_end + 1]
+                to_visit = [GcmFS.parse_fst(0, None, fst, string_table_start - fst_offset)] # start at root directory
+                while len(to_visit) != 0:
+                    file_entry = to_visit.pop()
+                    if len(file_entry['children']) == 0:
+                        file_data = self.read_file(file_entry['offset'], file_entry['length'])
+                    else:
+                        file_data = None
+                        to_visit += file_entry['children']
+                    if not file_entry['is_root']:
+                        yield (partition_path / file_entry['path'], None, file_data)
+                break # TODO DELETE
