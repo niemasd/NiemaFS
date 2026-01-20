@@ -57,6 +57,14 @@ with open(target_path, 'rb') as target_file:
     fs = IsoFS(path=target_path, file_obj=target_file)
 ```
 
+### [`TarFS`](https://niema.net/NiemaFS/#niemafs.TarFS) — TAR Archive
+
+```python
+from niemafs import TarFS
+with open(target_path, 'rb') as target_file:
+    fs = TarFS(path=target_path, file_obj=target_file)
+```
+
 ### [`WiiFS`](https://niema.net/NiemaFS/#niemafs.WiiFS) — Nintendo Wii DVD
 Note that, due to the need to decrypt the filesystem, this is extremely memory-intensive (each partition is loaded into memory to process in parallel for speed).
 
