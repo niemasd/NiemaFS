@@ -14,7 +14,7 @@ from os import path
 here = path.abspath(path.dirname(__file__))
 setup(
     name='niemafs',  # Required
-    version='0.0.11',  # Required
+    version='0.0.12',  # Required
     description="Niema's Python library for reading data from various file system standards", # Required
     long_description="Niema's Python library for reading data from various file system standards", # Optional
     long_description_content_type='text/plain',  # Optional (see note above)
@@ -53,4 +53,7 @@ setup(
         'Bug Reports': 'https://github.com/niemasd/NiemaFS/issues',
         'Source': 'https://github.com/niemasd/NiemaFS',
     },
+    install_requires=[
+        'pycryptodome',
+    ],
 )
