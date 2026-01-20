@@ -14,6 +14,7 @@ import niemafs
 FORMAT_TO_CLASS = {
     'GCM': niemafs.GcmFS,
     'ISO': niemafs.IsoFS,
+    'TAR': niemafs.TarFS,
     'WII': niemafs.WiiFS,
     'ZIP': niemafs.ZipFS,
 }

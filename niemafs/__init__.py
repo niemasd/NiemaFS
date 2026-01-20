@@ -7,6 +7,7 @@ from niemafs.common import clean_string, FileSystem, open_file, safename
 from niemafs.dir import DirFS
 from niemafs.gcm import GcmFS
 from niemafs.iso import IsoFS
+from niemafs.tar import TarFS
 from niemafs.zip import ZipFS
 
 # build __all__
@@ -15,6 +16,7 @@ __all__ = [
     'DirFS',                                               # dir.py
     'GcmFS',                                               # gcm.py
     'IsoFS',                                               # iso.py
+    'TarFS',                                               # tar.py
     'ZipFS',                                               # zip.py
 ]
 
