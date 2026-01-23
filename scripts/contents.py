@@ -15,9 +15,10 @@ FORMAT_TO_CLASS = {
     'GCM': niemafs.GcmFS,
     'ISO': niemafs.IsoFS,
     'TAR': niemafs.TarFS,
-    'WII': niemafs.WiiFS,
     'ZIP': niemafs.ZipFS,
 }
+if hasattr(niemafs, 'WiiFS'):
+    FORMAT_TO_CLASS['WII'] = niemafs.WiiFS
 
 # return the current time as a string
 def get_time():
