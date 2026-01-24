@@ -81,3 +81,11 @@ from niemafs import ZipFS
 with open(target_path, 'rb') as target_file:
     fs = ZipFS(path=target_path, file_obj=target_file)
 ```
+
+# Acknowledgements
+The following resources were extremely helpful in the development of NiemaFS:
+
+* [GC-Forever](https://www.gc-forever.com/) — [Yet Another Gamecube Documentation](https://www.gc-forever.com/yagcd/)
+* [OS Development Wiki](https://wiki.osdev.org/) — [File Systems](https://wiki.osdev.org/File_Systems)
+* [Wii.py](https://github.com/grp/Wii.py)
+* [WiiBrew](https://wiibrew.org) — [Wii Disc](https://wiibrew.org/wiki/Wii_disc)
