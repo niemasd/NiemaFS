@@ -1,11 +1,11 @@
 #! /usr/bin/env python
 '''
-Handle Nintendo Wii DVD file system
+Handle Nintendo Wii file systems
 '''
 
 # NiemaFS imports
 from niemafs.common import clean_string, FileSystem, safename
-from niemafs.gcm import GcmFS
+from niemafs.gcn import GcmFS
 
 # imports
 from Crypto.Cipher import AES
@@ -338,7 +338,7 @@ class WiiFS(FileSystem):
                 yield (partition_header_path / 'cert.bin', None, cert_chain)
                 yield (partition_header_path / 'h3.bin', None, h3_table)
 
-                # parse decrypted data, similar to GameCube: https://github.com/niemasd/NiemaFS/blob/main/niemafs/gcm.py
+                # parse decrypted data, similar to GameCube: https://github.com/niemasd/NiemaFS/blob/main/niemafs/gcn.py
                 fst_offset = unpack('>I', data_decrypted[0x0424 : 0x0428])[0] << 2
                 num_entries = unpack('>I', data_decrypted[fst_offset + 8 : fst_offset + 12])[0]
                 string_table_start = fst_offset + (12 * num_entries)

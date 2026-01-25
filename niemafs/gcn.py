@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 '''
-Handle Nintendo GameCube mini-DVD GCM file system
+Handle Nintendo GameCube file systems
 '''
 
 # NiemaFS imports
