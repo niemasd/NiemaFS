@@ -89,13 +89,13 @@ class FileSystem(ABC):
         '''
         pass
 
-    def read_file(self, offset, length, return_to_init=False):
+    def read_file(self, offset, length=None, return_to_init=False):
         '''Read data from the underlying `file`-like object.
 
         Args:
             `offset` (`int`): The offset from which to start reading.
 
-            `length` (`int`): The number of bytes to read.
+            `length` (`int`): The number of bytes to read, or `None` to read to the end.
 
             `return_to_init` (`bool`): `True` to seek back to the initial offset after finishing the read, otherwise `False` (faster)
 

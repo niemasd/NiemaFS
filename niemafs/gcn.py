@@ -8,8 +8,9 @@ from niemafs.common import clean_string, FileSystem
 
 # imports
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
-from struct import unpack
+from struct import pack, unpack
 from warnings import warn
 
 class GcmFS(FileSystem):
@@ -178,24 +179,6 @@ class GcmFS(FileSystem):
         # return final parsed data
         return out
 
-    def get_string_table(data, string_table_start, num_fst_entries): # TODO DELETE
-        '''Get the string table from the File System Table (FST)'s raw data.
-
-        Args:
-            `data` (`bytes`): The raw bytes of the FST.
-
-            `string_table_start` (`int`): The start offset of the string table.
-
-            `num_fst_entries` (`int`): The number of entries in the FST.
-
-        Returns:
-            `bytes`: The string table.
-        '''
-        string_table_end = string_table_start
-        for i in range(num_fst_entries-1): # FST includes root directory, which isn't in string table
-            string_table_end = data.find(b'\00', string_table_end + 1)
-        return data[string_table_start : string_table_end + 1] # include the last b'\x00'
-
     def parse_fst(fst_ind, parent_path, fst, string_table_start):
         '''Recursively parse the `File System Table (FST) <https://www.gc-forever.com/yagcd/chap13.html#sec13.4.1>`_.
 
@@ -262,3 +245,89 @@ class GcmFS(FileSystem):
                 to_visit += file_entry['children']
             if not file_entry['is_root']:
                 yield (file_entry['path'], None, file_data)
+
+class TgcFS(FileSystem):
+    '''Class to represent a `Nintendo GameCube TGC image <https://hitmen.c02.at/files/yagcd/yagcd/chap14.html#sec14.8>`_.'''
+    def __init__(self, file_obj, path=None):
+        # set things up
+        if file_obj is None:
+            raise ValueError("file_obj must be a file-like")
+        super().__init__(path=path, file_obj=file_obj)
+        self.header = None # Header
+        self.gcm = None    # Embedded GCM Data (bogus values fixed)
+
+    def get_header(self):
+        '''Return the `Header <https://hitmen.c02.at/files/yagcd/yagcd/chap14.html#sec14.8.1>`_ of the TGC.
+
+        Returns:
+            `bytes`: The Header of the TGC.
+        '''
+        if self.header is None:
+            self.header = self.read_file(0x00, 0x38)
+        return self.header
+
+    def parse_header(self):
+        '''Return a parsed version of the `Header <https://hitmen.c02.at/files/yagcd/yagcd/chap14.html#sec14.8.1>`_ of the TGC.
+
+        Returns:
+            `dict`: A parsed version of the Header of the TGC.
+        '''
+        # set things up
+        data = self.get_header()
+        out = dict()
+
+        # parse raw Header data
+        out['magic_word'] =             data[0x00 : 0x04]                  # TGC Magic Word (should be 0xae0f38a2)
+        out['offsets_0x04_0x07'] =      data[0x04 : 0x08]                  # Unknown (usually all 0s)
+        out['header_size'] =            unpack('>I', data[0x08 : 0x0C])[0] # Header Size (usually 0x8000)
+        out['offsets_0x0C_0x0F'] =      data[0x0C : 0x10]                  # Unknown (usually 0x00100000)
+        out['embedded_fst_offset'] =    unpack('>I', data[0x10 : 0x14])[0] # Offset to FST inside embedded GCM
+        out['embedded_fst_size'] =      unpack('>I', data[0x14 : 0x18])[0] # Size of FST inside embedded GCM
+        out['embedded_max_fst_size'] =  unpack('>I', data[0x18 : 0x1C])[0] # Max Size of FST inside embedded GCM
+        out['embedded_boot_offset'] =   unpack('>I', data[0x1C : 0x20])[0] # Offset to Boot-DOL inside embedded GCM
+        out['embedded_boot_size'] =     unpack('>I', data[0x20 : 0x24])[0] # Size of Boot-DOl inside embedded GCM
+        out['file_area_offset'] =       unpack('>I', data[0x24 : 0x28])[0] # Offset to File Area inside embedded GCM
+        out['file_area_size'] =         unpack('>I', data[0x28 : 0x2C])[0] # Size of File Area
+        out['embedded_banner_offset'] = unpack('>I', data[0x2C : 0x30])[0] # Offset to Banner inside embedded GCM(?)
+        out['embedded_banner_size'] =   unpack('>I', data[0x30 : 0x34])[0] # Size of Banner inside embedded GCM(?)
+        out['fst_spoof_amount'] =       unpack('>I', data[0x34 : 0x38])[0] # FST Spoof Amount
+
+        # return final parsed data
+        return out
+
+    def get_gcm(self):
+        '''Return the `Embedded GCM <https://hitmen.c02.at/files/yagcd/yagcd/chap14.html#sec14.8.2>`_ of the TGC.
+
+        Args:
+            `fix` (`bool`): `True` to update the offsets of the embedded GCM data with their correct values based on the Header, otherwise `False` to return the raw embedded GCM data.
+
+        Returns:
+            `bytes`: The Embedded GCM of the TGC.
+        '''
+        if self.gcm is None:
+            # load raw GCM data
+            header = self.parse_header()
+            header_size = header['header_size']
+            gcm_data = bytearray(self.read_file(header_size))
+
+            # fix Boot-DOL and FST offsets
+            fixed_boot_offset = header['embedded_boot_offset'] - header_size
+            fixed_fst_offset = header['embedded_fst_offset'] - header_size
+            gcm_data[0x0420 : 0x0424] = pack('>I', fixed_boot_offset)
+            gcm_data[0x0424 : 0x0428] = pack('>I', fixed_fst_offset)
+
+            # fix FST entries
+            delta = header['file_area_offset'] - header['fst_spoof_amount'] - header_size
+            num_entries = unpack('>I', gcm_data[fixed_fst_offset + 8 : fixed_fst_offset + 12])[0]
+            for entry_offset in range(fixed_fst_offset, fixed_fst_offset + (12*num_entries), 12):
+                if not bool(gcm_data[entry_offset]): # only update files
+                    orig_offset = unpack('>I', gcm_data[entry_offset + 4 : entry_offset + 8])[0]
+                    fixed_offset = orig_offset + delta
+                    gcm_data[entry_offset + 4 : entry_offset + 8] = pack('>I', fixed_offset)
+
+            # finalize
+            self.gcm = bytes(gcm_data)
+        return self.gcm
+
+    def __iter__(self):
+        return iter(GcmFS(BytesIO(self.get_gcm())))

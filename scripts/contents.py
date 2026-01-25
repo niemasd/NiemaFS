@@ -15,6 +15,7 @@ FORMAT_TO_CLASS = {
     'GCM': niemafs.GcmFS,
     'ISO': niemafs.IsoFS,
     'TAR': niemafs.TarFS,
+    'TGC': niemafs.TgcFS,
     'ZIP': niemafs.ZipFS,
 }
 if hasattr(niemafs, 'WiiFS'):
