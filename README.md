@@ -65,7 +65,7 @@ with open(target_path, 'rb') as target_file:
     fs = TarFS(path=target_path, file_obj=target_file)
 ```
 
-### [`TgcFS`](https://niema.net/NiemaFS/#niemafs.TgcFS) — Nintendo GameCube TGC File
+### [`TgcFS`](https://niema.net/NiemaFS/#niemafs.TgcFS) — Nintendo GameCube TGC Image
 
 ```python
 from niemafs import TgcFS
