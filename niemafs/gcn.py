@@ -331,3 +331,199 @@ class TgcFS(FileSystem):
 
     def __iter__(self):
         return iter(GcmFS(BytesIO(self.get_gcm())))
+
+class GcRarcFS(FileSystem):
+    '''Class to represent a `Nintendo GameCube RARC (.arc) archives <https://www.gc-forever.com/yagcd/chap15.html#sec15.3>`_.'''
+    def __init__(self, file_obj, path=None):
+        # set things up
+        if file_obj is None:
+            raise ValueError("file_obj must be a file-like")
+        super().__init__(path=path, file_obj=file_obj)
+        self.header = None      # Header
+        self.data_header = None # Data Header
+
+    def get_header(self):
+        '''Return the `Header <https://www.lumasworkshop.com/wiki/RARC_(File_Format)>`_ of the RARC.
+
+        Returns:
+            `bytes`: The Header of the RARC.
+        '''
+        if self.header is None:
+            self.header = self.read_file(0x00, 0x20)
+        return self.header
+
+    def parse_header(self):
+        '''Return a parsed version of the `Header <https://www.lumasworkshop.com/wiki/RARC_(File_Format)#Header>`_ of the RARC.
+
+        Returns:
+            `dict`: A parsed version of the Header of the RARC.
+        '''
+        # set things up
+        data = self.get_header()
+        out = dict()
+
+        # parse raw Header data
+        out['magic_word'] =          data[0x00 : 0x04]                  # should be 'RARC'
+        out['size'] =                unpack('>I', data[0x04 : 0x08])[0] # Size of Entire File
+        out['data_header_offset'] =  unpack('>I', data[0x08 : 0x0C])[0] # Data Header Offset (always 0x20)
+        out['data_start_offset'] =   unpack('>I', data[0x0C : 0x10])[0] # Data Start Offset (add 0x20 to this value)
+        out['data_section_size'] =   unpack('>I', data[0x10 : 0x14])[0] # Size of File Data Section
+        out['mram_size'] =           unpack('>I', data[0x14 : 0x18])[0] # Size of All MRAM Files in File Data Section
+        out['aram_size'] =           unpack('>I', data[0x18 : 0x1C])[0] # Size of All ARAM Files in File Data Section
+        out['dvd_size'] =            unpack('>I', data[0x1C : 0x20])[0] # Size of All DVD Files in File Data Section
+
+        # clean strings
+        for k in ['magic_word']:
+            try:
+                out[k] = clean_string(out[k])
+            except:
+                warn("Unable to parse Header '%s' as string: %s" % (k, out[k]))
+
+        # check for validity
+        if out['magic_word'] != 'RARC':
+            warn("RARC magic word should be 'RARC', but it was: %s" % out['magic_word'])
+
+        # return final parsed data
+        return out
+
+    def get_data_header(self):
+        '''Return the `Data Header <https://www.lumasworkshop.com/wiki/RARC_(File_Format)#Data_Header>`_ of the RARC.
+
+        Returns:
+            `bytes`: The Data Header of the RARC.
+        '''
+        if self.data_header is None:
+            self.data_header = self.read_file(self.parse_header()['data_header_offset'], 0x20)
+        return self.data_header
+
+    def parse_data_header(self):
+        '''Return a parsed version of the `Data Header <https://www.lumasworkshop.com/wiki/RARC_(File_Format)#Data_Header>`_ of the RARC.
+
+        Returns:
+            `dict`: A parsed version of the Data Header of the RARC.
+        '''
+        # set things up
+        data = self.get_data_header()
+        out = dict()
+
+        # parse raw Data Header data
+        out['num_dirs'] =            unpack('>I', data[0x00 : 0x04])[0] # Number of Directory Nodes
+        out['dir_offset'] =          unpack('>I', data[0x04 : 0x08])[0] # Offset to Directory Node Section (always 0x20) (add 0x20 to this)
+        out['num_files'] =           unpack('>I', data[0x08 : 0x0C])[0] # Number of File Nodes
+        out['file_offset'] =         unpack('>I', data[0x0C : 0x10])[0] # Offset to File Node Section (add 0x20 to this)
+        out['string_table_size'] =   unpack('>I', data[0x10 : 0x14])[0] # Size of String Table
+        out['string_table_offset'] = unpack('>I', data[0x14 : 0x18])[0] # Offset to String Table (add 0x20 to this)
+        out['next_file_index'] =     unpack('>H', data[0x18 : 0x1A])[0] # Next Available File Index (number of File Nodes that are files?)
+        out['keep_file_ID_sync'] =   bool(data[0x1A])                   # Keep File IDs Synced
+        out['offsets_0x1B_0x1F'] =   data[0x1B : 0x20]                  # Padding (all 0s)
+
+        # return final parsed data
+        return out
+
+    def parse_dir_node(data):
+        '''Return a parsed version of a `Directory Node <https://www.lumasworkshop.com/wiki/RARC_(File_Format)#Directory_Node_section>`_ of the RARC.
+
+        Args:
+            `data` (`bytes`): The raw Directory Node data
+
+        Returns:
+            `dict`: A parsed version of the Directory Node
+        '''
+        # set things up
+        if len(data) != 16:
+            raise ValueError("Directory Node data must be exactly 16 bytes: %s" % data)
+        out = dict()
+
+        # parse raw node data
+        out['name_prefix'] =      data[0x00 : 0x04]                  # First 4 Characters of Directory Name (all caps)
+        out['name_offset'] =      unpack('>I', data[0x04 : 0x08])[0] # Offset of Directory Name in String Table
+        out['name_hash'] =        unpack('>H', data[0x08 : 0x0A])[0] # Hash of Directory Name
+        out['num_files'] =        unpack('>H', data[0x0A : 0x0C])[0] # Number of Files in this Directory Node
+        out['file_nodes_index'] = unpack('>I', data[0x0C : 0x10])[0] # Index of First File Node in this Directory Node
+
+        # clean strings
+        for k in ['name_prefix']:
+            try:
+                out[k] = clean_string(out[k])
+            except:
+                warn("Unable to parse Header '%s' as string: %s" % (k, out[k]))
+
+        # return final parsed data
+        return out
+
+    def parse_file_node(data):
+        '''Return a parsed version of a `File Node <https://wiki.tockdom.com/wiki/RARC_(File_Format)#Directory>`_ of the RARC.
+
+        Args:
+            `data` (`bytes`): The raw File Node data
+
+        Returns:
+            `dict`: A parsed version of the File Node
+        '''
+        # set things up
+        if len(data) != 0x14:
+            raise ValueError("File Node data must be exactly 0x14 bytes: %s" % data)
+        out = dict()
+
+        # parse raw node data
+        out['index'] =             unpack('>H', data[0x00 : 0x02])[0]           # Node Index (0xFFFF if this is a subdirectory)
+        out['name_hash'] =         unpack('>H', data[0x02 : 0x04])[0]           # Hash of Node Name
+        out['attributes'] =        data[0x04]                                   # Node Attributes
+        out['name_offset'] =       unpack('>I', b'\x00' + data[0x05 : 0x08])[0] # Name Offset in String Table
+        out['offset'] =            unpack('>I', data[0x08 : 0x0C])[0]           # If File: Offset in File Data Section; If Directory: Index in Directory Node Section
+        out['size'] =              unpack('>I', data[0x0C : 0x10])[0]           # If File: Size of File's Data; If Directory: always 0x10
+        out['offsets_0x10_0x13'] = data[0x10 : 0x14]                            # Unknown (all 0s?)
+
+        # parse node attributes
+        out['attributes'] = GcRarcFS.parse_node_attributes(out['attributes'])
+
+        # return final parsed data
+        return out
+
+    def parse_node_attributes(x):
+        '''Return a parsed version of the `Attributes <https://www.lumasworkshop.com/wiki/RARC_(File_Format)#Node_Attributes>`_ of a File Node of the RARC.
+
+        Args:
+            `x` (`int`): The integer representation of the Attributes of a File Node.
+
+        Returns:
+            `dict`: A parsed version of the Attributes.
+        '''
+        return {
+            'is_file':       bool(x & 0x01), # Node is a File
+            'is_dir':        bool(x & 0x02), # Node is a Directory
+            'is_compressed': bool(x & 0x04), # Node's File is Compressed
+            'preload_mram':  bool(x & 0x10), # Preload File to Main RAM (MRAM)
+            'preload_aram':  bool(x & 0x20), # Preload File to Auxiliary RAM (ARAM)
+            'load_dvd':      bool(x & 0x40), # Load File from DVD when Needed
+            'is_yaz0':       bool(x & 0x80), # Node is YAZ0-Compressed ('is_compressed' should be True as well)
+        }
+
+    def __iter__(self):
+        # set things up
+        header = self.parse_header()
+        data_header = self.parse_data_header()
+        dir_nodes_start = data_header['dir_offset'] + 0x20
+        dir_nodes = [GcRarcFS.parse_dir_node(self.read_file(i,16)) for i in range(dir_nodes_start, dir_nodes_start + (16 * data_header['num_dirs']), 16)]
+        file_nodes_start = data_header['file_offset'] + 0x20
+        file_nodes = [GcRarcFS.parse_file_node(self.read_file(i,0x14)) for i in range(file_nodes_start, file_nodes_start + (0x14 * data_header['num_files']), 0x14)]
+        string_table = self.read_file(data_header['string_table_offset'] + 0x20, data_header['string_table_size'])
+        file_data_start = header['data_start_offset'] + 0x20
+
+        # load node names
+        for node in dir_nodes + file_nodes:
+            node['name'] = clean_string(string_table[node['name_offset'] : string_table.find(b'\x00',node['name_offset'])])
+
+        # iterate over all files
+        dir_nodes[0]['parent_path'] = Path('.')
+        for dir_node_ind, dir_node in enumerate(dir_nodes):
+            dir_path = dir_node['parent_path'] / dir_node['name']
+            yield (dir_path, None, None)
+            for file_node_ind in range(dir_node['file_nodes_index'], dir_node['file_nodes_index'] + dir_node['num_files']):
+                file_node = file_nodes[file_node_ind]
+                if file_node['attributes']['is_dir']:
+                    if file_node['name'] in {'.', '..'}:
+                        continue # skip current ('.') and parent ('..') directories
+                    dir_nodes[file_node['offset']]['parent_path'] = dir_path
+                else:
+                    yield (dir_path / file_node['name'], None, self.read_file(file_data_start + file_node['offset'], file_node['size']))

@@ -12,11 +12,12 @@ import niemafs
 
 # constants
 FORMAT_TO_CLASS = {
-    'GCM': niemafs.GcmFS,
-    'ISO': niemafs.IsoFS,
-    'TAR': niemafs.TarFS,
-    'TGC': niemafs.TgcFS,
-    'ZIP': niemafs.ZipFS,
+    'GCM':  niemafs.GcmFS,
+    'ISO':  niemafs.IsoFS,
+    'RARC': niemafs.GcRarcFS,
+    'TAR':  niemafs.TarFS,
+    'TGC':  niemafs.TgcFS,
+    'ZIP':  niemafs.ZipFS,
 }
 if hasattr(niemafs, 'WiiFS'):
     FORMAT_TO_CLASS['WII'] = niemafs.WiiFS

@@ -93,7 +93,9 @@ with open(target_path, 'rb') as target_file:
 # Acknowledgements
 The following resources were extremely helpful in the development of NiemaFS:
 
+* [Custom Mario Kart Wiiki](https://wiki.tockdom.com/) — [RARC (File Format)](https://wiki.tockdom.com/wiki/RARC_(File_Format))
 * [GC-Forever](https://www.gc-forever.com/) — [Yet Another Gamecube Documentation](https://www.gc-forever.com/yagcd/)
+* [Luma's Workshop](https://www.lumasworkshop.com/) — [RARC (File Format)](https://www.lumasworkshop.com/wiki/RARC_(File_Format))
 * [OS Development Wiki](https://wiki.osdev.org/) — [File Systems](https://wiki.osdev.org/File_Systems)
 * [TGCtoGCM](https://www.romhacking.net/utilities/1096/)
 * [Wii.py](https://github.com/grp/Wii.py)
