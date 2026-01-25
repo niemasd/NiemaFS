@@ -40,13 +40,22 @@ from niemafs import DirFS
 fs = DirFS(path=target_path)
 ```
 
-### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube mini-DVD
+### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube Mini-DVD
 Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import GcmFS
 with open(target_path, 'rb') as target_file:
     fs = GcmFS(path=target_path, file_obj=target_file)
+```
+
+### [`GcRarcFS`](https://niema.net/NiemaFS/#niemafs.GcRarcFS) — Nintendo GameCube RARC Archive
+Note that the Nintendo GameCube RARC file system does not contain file/folder timestamps. As a result, iterating over a `GcRarcFS` object will yield `None` for the timestamps.
+
+```python
+from niemafs import GcRarcFS
+with open(target_path, 'rb') as target_file:
+    fs = GcRarcFS(path=target_path, file_obj=target_file)
 ```
 
 ### [`IsoFS`](https://niema.net/NiemaFS/#niemafs.IsoFS) — ISO 9660 Disc Image
@@ -66,6 +75,7 @@ with open(target_path, 'rb') as target_file:
 ```
 
 ### [`TgcFS`](https://niema.net/NiemaFS/#niemafs.TgcFS) — Nintendo GameCube TGC Image
+Note that the Nintendo GameCube TGC file system does not contain file/folder timestamps. As a result, iterating over a `TgcFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import TgcFS
