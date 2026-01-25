@@ -242,7 +242,7 @@ class GcmFS(FileSystem):
                 file_data = self.read_file(file_entry['offset'], file_entry['length'])
             else:
                 file_data = None
-                to_visit += file_entry['children']
+                to_visit += file_entry['children'][::-1] # descending order into stack = ascending order when popped
             if not file_entry['is_root']:
                 yield (file_entry['path'], None, file_data)
 
