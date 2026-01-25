@@ -65,6 +65,14 @@ with open(target_path, 'rb') as target_file:
     fs = TarFS(path=target_path, file_obj=target_file)
 ```
 
+### [`TgcFS`](https://niema.net/NiemaFS/#niemafs.TgcFS) — Nintendo GameCube TGC File
+
+```python
+from niemafs import TgcFS
+with open(target_path, 'rb') as target_file:
+    fs = TgcFS(path=target_path, file_obj=target_file)
+```
+
 ### [`WiiFS`](https://niema.net/NiemaFS/#niemafs.WiiFS) — Nintendo Wii DVD
 Note that, due to the need to decrypt the filesystem, this is extremely memory-intensive (each partition is loaded into memory to process in parallel for speed).
 
@@ -87,5 +95,6 @@ The following resources were extremely helpful in the development of NiemaFS:
 
 * [GC-Forever](https://www.gc-forever.com/) — [Yet Another Gamecube Documentation](https://www.gc-forever.com/yagcd/)
 * [OS Development Wiki](https://wiki.osdev.org/) — [File Systems](https://wiki.osdev.org/File_Systems)
+* [TGCtoGCM](https://www.romhacking.net/utilities/1096/)
 * [Wii.py](https://github.com/grp/Wii.py)
 * [WiiBrew](https://wiibrew.org) — [Wii Disc](https://wiibrew.org/wiki/Wii_disc)
