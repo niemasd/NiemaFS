@@ -19,8 +19,8 @@ The workflow to use each of the NiemaFS classes is as follows:
 
 1. Instantiate the appropriate NiemaFS class by providing a path `path` and a file-like object `file_obj`
 2. Iterate over the contents of the NiemaFS object using a for-loop, each iteration of which will yield a `tuple` as follows:
-    1. The [`Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) of the file/folder within the filesystem
-    2. The modification timestamp of the file/folder as a [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime)
+    1. The [`Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) of the file/folder within the file system
+    2. The modification timestamp of the file/folder as a [`datetime`](https://docs.python.org/3/library/datetime.html#datetime.datetime), or `None` if the file system does not store timestamps
     3. The contents of the file as [`bytes`](https://docs.python.org/3/library/stdtypes.html#bytes), or `None` for directories
 
 ```python
@@ -41,7 +41,6 @@ fs = DirFS(path=target_path)
 ```
 
 ### [`GcmFS`](https://niema.net/NiemaFS/#niemafs.GcmFS) — Nintendo GameCube Mini-DVD
-Note that the Nintendo GameCube GCM file system does not contain file/folder timestamps. As a result, iterating over a `GcmFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import GcmFS
@@ -50,7 +49,6 @@ with open(target_path, 'rb') as target_file:
 ```
 
 ### [`GcRarcFS`](https://niema.net/NiemaFS/#niemafs.GcRarcFS) — Nintendo GameCube RARC Archive
-Note that the Nintendo GameCube RARC file system does not contain file/folder timestamps. As a result, iterating over a `GcRarcFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import GcRarcFS
@@ -75,7 +73,6 @@ with open(target_path, 'rb') as target_file:
 ```
 
 ### [`TgcFS`](https://niema.net/NiemaFS/#niemafs.TgcFS) — Nintendo GameCube TGC Image
-Note that the Nintendo GameCube TGC file system does not contain file/folder timestamps. As a result, iterating over a `TgcFS` object will yield `None` for the timestamps.
 
 ```python
 from niemafs import TgcFS
@@ -84,7 +81,7 @@ with open(target_path, 'rb') as target_file:
 ```
 
 ### [`WiiFS`](https://niema.net/NiemaFS/#niemafs.WiiFS) — Nintendo Wii DVD
-Note that, due to the need to decrypt the filesystem, this is extremely memory-intensive (each partition is loaded into memory to process in parallel for speed).
+Note that, due to the need to decrypt the file system, this is extremely memory-intensive (each partition is loaded into memory to process in parallel for speed).
 
 ```python
 from niemafs import WiiFS
