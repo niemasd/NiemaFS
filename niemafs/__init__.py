@@ -6,6 +6,7 @@ from warnings import warn
 from niemafs.common import clean_string, FileSystem, open_file, safename
 from niemafs.dir import DirFS
 from niemafs.gcn import GcmFS, GcRarcFS, TgcFS
+from niemafs.hfs import HfsFS
 from niemafs.iso import IsoFS
 from niemafs.tar import TarFS
 from niemafs.zip import ZipFS
@@ -15,6 +16,7 @@ __all__ = [
     'clean_string', 'FileSystem', 'open_file', 'safename', # common.py
     'DirFS',                                               # dir.py
     'GcmFS', 'GcRarcFS', 'TgcFS',                          # gcn.py
+    'HfsFS',                                               # hfs.py
     'IsoFS',                                               # iso.py
     'TarFS',                                               # tar.py
     'ZipFS',                                               # zip.py
