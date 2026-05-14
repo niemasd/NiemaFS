@@ -298,130 +298,129 @@ class HfsFS(FileSystem):
             return False
         return True
 
-    def _find_apm_hfs_partition(self, apm_base, block_size):
+    def find_apm(self, apm_base, block_size):
+        '''Find the Apple Partition Map (APM) in an HFS filesystem
+
+        Args:
+            `apm_base` (`int`): The APM base to check
+
+            `block_size` (`int`): The block size
+
+        Returns:
+            `int`: The volume offset of the APM base if found, otherwise `None`.
+        '''
         if block_size not in {512, 1024, 2048, 4096}:
             return None
-
         first = self.read_stream(apm_base + block_size, min(block_size, 512))
         if len(first) < 136 or first[0:2] != HFS_APM_SIGNATURE:
             return None
-
         count = unpack('>I', first[4 : 8])[0]
         if count == 0 or count > 4096:
             return None
-
         fallback = None
-
         for i in range(1, count + 1):
             entry = self.read_stream(apm_base + i * block_size, min(block_size, 512))
             if len(entry) < 136 or entry[0:2] != HFS_APM_SIGNATURE:
                 continue
-
             start_block = unpack('>I', entry[8 : 12])[0]
             part_type = HfsFS.decode_text(entry[48:80])
             vol_off = apm_base + start_block * block_size
-
             if self.check_hfs(vol_off):
                 if part_type == 'Apple_HFS':
                     return vol_off
                 if fallback is None:
                     fallback = vol_off
-
         return fallback
 
-    def _probe_current_layout(self, scan=False):
+    def probe_layout(self, scan=False):
+        '''Probe the HFS layout for the Apple Partition Map (APM)
+
+        Args:
+            `scan` (`bool`): `True` to scan fo rthe HFS DDR signature, otherwise `False.
+
+        Returns:
+            `int`: The offset of the APM, otherwise `None`.
+        '''
         if self.check_hfs(0):
             return 0
-
         ddr = self.read_stream(0, 512)
         if len(ddr) >= 8 and ddr[0:2] == HFS_DDR_SIGNATURE:
             block_size = unpack('>H', ddr[2 : 4])[0]
-            found = self._find_apm_hfs_partition(0, block_size)
+            found = self.find_apm(0, block_size)
             if found is not None:
                 return found
-
         for block_size in (512, 2048):
-            found = self._find_apm_hfs_partition(0, block_size)
+            found = self.find_apm(0, block_size)
             if found is not None:
                 return found
-
         if not scan:
             return None
-
         buf = self.read_stream(0, HFS_SIGNATURE_SCAN_SIZE)
-
         pos = 0
         while True:
             pos = buf.find(HFS_DDR_SIGNATURE, pos)
             if pos < 0:
                 break
-
             ddr = self.read_stream(pos, 512)
             if len(ddr) >= 8 and ddr[0:2] == HFS_DDR_SIGNATURE:
                 block_size = unpack('>H', ddr[2 : 4])[0]
-                found = self._find_apm_hfs_partition(pos, block_size)
+                found = self.find_apm(pos, block_size)
                 if found is not None:
                     return found
-
             pos += 1
-
         pos = 0
         while True:
             pos = buf.find(HFS_MDB_SIGNATURE, pos)
             if pos < 0:
                 break
-
             vol_off = pos - 2 * HFS_LOGICAL_BLOCK_SIZE
             if vol_off >= 0 and vol_off % HFS_LOGICAL_BLOCK_SIZE == 0:
                 if self.check_hfs(vol_off):
                     return vol_off
-
             pos += 1
-
         return None
 
     def detect_layout(self):
+        '''Detect HFS image layout'''
         if self.volume_offset is not None:
             return
 
-        # First pass: exact probes. This catches direct images and raw CD sectors cleanly.
+        # first pass: exact probes (this catches direct images and raw CD sectors cleanly)
         for phys, off, user_size in COMMON_HFS_LAYOUT_CANDIDATES:
             self.physical_logical_block_size = phys
             self.user_data_offset = off
             self.user_data_size = user_size
             self.image_base_offset = 0
-
-            found = self._probe_current_layout(scan=False)
+            found = self.probe_layout(scan=False)
             if found is not None:
                 self.volume_offset = found
                 return
 
-        # Second pass: signature scan. Prefer non-identity/raw-CD layouts to avoid
-        # falsely treating a raw sector header as a one-time file prefix.
+        # second pass: signature scan (prefer non-identity/raw-CD layouts to avoid falsely treating a raw sector header as a one-time file prefix)
         scan_order = [c for c in COMMON_HFS_LAYOUT_CANDIDATES if c[0] != c[2] or c[1] != 0]
         scan_order += [c for c in COMMON_HFS_LAYOUT_CANDIDATES if c not in scan_order]
-
         for phys, off, user_size in scan_order:
             self.physical_logical_block_size = phys
             self.user_data_offset = off
             self.user_data_size = user_size
             self.image_base_offset = 0
-
-            found = self._probe_current_layout(scan=True)
+            found = self.probe_layout(scan=True)
             if found is not None:
                 self.volume_offset = found
                 return
-
         raise ValueError("No classic HFS volume found")
 
     def parse_master_directory_block(self):
+        '''Parse Master Directory Block
+
+        Returns:
+            `dict`: The parsed Master Directory Block
+        '''
         if self.mdb is not None:
             return self.mdb
-
         mdb = self.read_volume(2 * HFS_LOGICAL_BLOCK_SIZE, HFS_LOGICAL_BLOCK_SIZE)
         if len(mdb) < 162 or mdb[0:2] != HFS_MDB_SIGNATURE:
             raise ValueError("Not a classic HFS volume (missing MDB signature)")
-
         self.mdb = {
             'signature': mdb[0:2],
             'created': HfsFS.get_mac_time(unpack('>I', mdb[2 : 6])[0]),
@@ -435,65 +434,59 @@ class HfsFS(FileSystem):
             'catalog_file_size': unpack('>I', mdb[146 : 150])[0],
             'catalog_file_extents': self.parse_extents(mdb[150:162]),
         }
-
         self.allocation_block_size = self.mdb['allocation_block_size']
         self.first_allocation_block = self.mdb['first_allocation_block']
         return self.mdb
 
-    def _allocation_block_offset(self, allocation_block):
-        return (
-            self.first_allocation_block * HFS_LOGICAL_BLOCK_SIZE
-            + allocation_block * self.allocation_block_size
-        )
+    def read_from_extents(self, extents, length):
+        '''Read from extents
 
-    def _read_from_extents(self, extents, length):
+        Args:
+            `extents` (`list`): The extents to read from
+
+            `length` (`int`): The number of blocks to read
+
+        Returns:
+            `bytes`: The read data
+        '''
         if length <= 0:
             return b''
-
         out = bytearray()
         remaining = length
-
         for start, count in extents:
             if remaining <= 0:
                 break
-
             n = min(remaining, count * self.allocation_block_size)
-            out.extend(self.read_volume(self._allocation_block_offset(start), n))
+            allocation_block_offset = self.first_allocation_block * HFS_LOGICAL_BLOCK_SIZE + start * self.allocation_block_size
+            out.extend(self.read_volume(allocation_block_offset, n))
             remaining -= n
-
         if len(out) < length:
             warn("HFS fork is shorter than expected; extents-overflow data may be incomplete")
-
         return bytes(out[:length])
 
-    def _resolve_extents_from_current_overflow(self, file_id, fork_type, initial_extents, length):
+    def resolve_extents_from_overflow(self, file_id, fork_type, initial_extents, length):
         extents = list(initial_extents)
         needed = ceil(length / self.allocation_block_size) if length else 0
         have = sum(count for _, count in extents)
-
         if have >= needed:
             return extents
-
         for fabn, more_extents in sorted(self.extents_overflow.get((file_id, fork_type), [])):
             if fabn < have:
                 continue
-
             extents.extend(more_extents)
             have = sum(count for _, count in extents)
-
             if have >= needed:
                 break
-
         return extents
 
-    def _read_fork(self, file_id, fork_type, initial_extents, length):
-        extents = self._resolve_extents_from_current_overflow(
+    def read_fork(self, file_id, fork_type, initial_extents, length):
+        extents = self.resolve_extents_from_overflow(
             file_id,
             fork_type,
             initial_extents,
             length,
         )
-        return self._read_from_extents(extents, length)
+        return self.read_from_extents(extents, length)
 
     def parse_extents_overflow_records(self, data):
         records = {}
@@ -518,13 +511,12 @@ class HfsFS(FileSystem):
         if not size or not initial:
             return self.extents_overflow
         extents = list(initial)
-        # Usually one pass is enough. Extra passes allow the extents-overflow
-        # file to describe additional extents of itself.
+        # usually one pass is enough: extra passes allow the extents-overflow file to describe additional extents of itself
         for _ in range(3):
-            data = self._read_from_extents(extents, size)
+            data = self.read_from_extents(extents, size)
             parsed = self.parse_extents_overflow_records(data)
             self.extents_overflow = parsed
-            new_extents = self._resolve_extents_from_current_overflow(
+            new_extents = self.resolve_extents_from_overflow(
                 HFS_EXTENTS_CNID,
                 HFS_DATA_FORK,
                 initial,
@@ -535,8 +527,8 @@ class HfsFS(FileSystem):
             extents = new_extents
         return self.extents_overflow
 
-    def _catalog_leaf_records(self):
-        data = self._read_fork(
+    def catalog_leaf_records(self):
+        data = self.read_fork(
             HFS_CATALOG_CNID,
             HFS_DATA_FORK,
             self.mdb['catalog_file_extents'],
@@ -544,15 +536,13 @@ class HfsFS(FileSystem):
         )
         return HfsBTree(data).leaf_records()
 
-    def _parse_catalog_key(self, rec):
+    def parse_catalog_key(self, rec):
         key_len = rec[0]
         if key_len == 0 or len(rec) < 1 + key_len:
             return None
-
         parent_id = unpack('>I', rec[2 : 6])[0]
         name_len = rec[6]
         name = HfsFS.decode_text(rec[7:7 + name_len]).replace('/', ':')
-
         return {
             'key_len': key_len,
             'data_offset': 1 + key_len,
@@ -560,8 +550,8 @@ class HfsFS(FileSystem):
             'name': name,
         }
 
-    def _parse_catalog_record(self, rec):
-        key = self._parse_catalog_key(rec)
+    def parse_catalog_record(self, rec):
+        key = self.parse_catalog_key(rec)
         if key is None or len(rec) <= key['data_offset']:
             return None
         data = rec[key['data_offset']:]
@@ -592,39 +582,32 @@ class HfsFS(FileSystem):
                 'resource_length': unpack('>I', data[36 : 40])[0],
                 'resource_extents': self.parse_extents(data[86:98]),
             }
-
         return None
 
-    def _load_catalog_records(self):
+    def load_catalog_records(self):
         if self.catalog_records is not None:
             return self.catalog_records
-
-        records = []
-        for raw in self._catalog_leaf_records():
-            parsed = self._parse_catalog_record(raw)
+        records = list()
+        for raw in self.catalog_leaf_records():
+            parsed = self.parse_catalog_record(raw)
             if parsed is not None and parsed.get('name'):
                 records.append(parsed)
-
         self.catalog_records = records
         return records
 
     def __iter__(self):
-        records = self._load_catalog_records()
-
-        children = {}
+        records = self.load_catalog_records()
+        children = dict()
         for rec in records:
             children.setdefault(rec['parent_id'], []).append(rec)
-
         def walk(parent_id, curr_path):
             for rec in children.get(parent_id, []):
                 next_path = curr_path / rec['name']
-
                 if rec['kind'] == 'directory':
                     yield (next_path, rec['modified'], None)
                     yield from walk(rec['cnid'], next_path)
-
                 elif rec['kind'] == 'file':
-                    data = self._read_fork(
+                    data = self.read_fork(
                         rec['cnid'],
                         HFS_DATA_FORK,
                         rec['data_extents'],
