@@ -596,23 +596,37 @@ class HfsFS(FileSystem):
         return records
 
     def __iter__(self):
+        # map parent directory IDs to children
         records = self.load_catalog_records()
         children = dict()
+        directories = dict()
         for rec in records:
-            children.setdefault(rec['parent_id'], []).append(rec)
-        def walk(parent_id, curr_path):
-            for rec in children.get(parent_id, []):
-                next_path = curr_path / rec['name']
-                if rec['kind'] == 'directory':
-                    yield (next_path, rec['modified'], None)
-                    yield from walk(rec['cnid'], next_path)
-                elif rec['kind'] == 'file':
-                    data = self.read_fork(
-                        rec['cnid'],
-                        HFS_DATA_FORK,
-                        rec['data_extents'],
-                        rec['data_length'],
-                    )
-                    yield (next_path, rec['modified'], data)
+            if rec['parent_id'] not in children:
+                children[rec['parent_id']] = list()
+            children[rec['parent_id']].append(rec)
+            if rec['kind'] == 'directory':
+                directories[rec['cnid']] = rec
 
-        yield from walk(HFS_ROOT_CNID, Path(''))
+        # perform search starting from root directory
+        to_visit = [(Path(''), HFS_ROOT_CNID)]
+        while len(to_visit) != 0:
+            curr_path, curr_id = to_visit.pop()
+
+            # handle current directory
+            if curr_path != Path(''):
+                curr_directory_entry = directories[curr_id]
+                yield (curr_path, curr_directory_entry['modified'], None)
+
+            # load children of current directory
+            for next_entry in children.get(curr_id, []):
+                next_entry_fn = next_entry['name']
+                next_path = curr_path / next_entry_fn
+
+                # next entry is a directory: add it to `to_visit`
+                if next_entry['kind'] == 'directory':
+                    to_visit.append((next_path, next_entry['cnid']))
+
+                # next entry is a file: read and yield it
+                elif next_entry['kind'] == 'file':
+                    next_data = self.read_fork(next_entry['cnid'], HFS_DATA_FORK, next_entry['data_extents'], next_entry['data_length'])
+                    yield (next_path, next_entry['modified'], next_data)
