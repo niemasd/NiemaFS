@@ -162,13 +162,6 @@ class HfsFS(FileSystem):
         self.parse_master_directory_block()
         self.load_extents_overflow()
 
-    def _u16(data, off):
-        return unpack('>H', data[off:off + 2])[0]
-
-    def _u32(data, off):
-        return unpack('>I', data[off:off + 4])[0]
-
-    @staticmethod
     def _mac_time(seconds):
         try:
             return DATETIME_BEGIN + timedelta(seconds=seconds)
@@ -232,7 +225,7 @@ class HfsFS(FileSystem):
     def _parse_extents(self, data):
         out = []
         for i in range(0, min(len(data), 12), 4):
-            start = unpack('>H', data[i : i+2])[0]
+            start = unpack('>H', data[i   : i+2])[0]
             count = unpack('>H', data[i+2 : i+4])[0]
             if count:
                 out.append((start, count))
@@ -243,10 +236,10 @@ class HfsFS(FileSystem):
         if len(mdb) < 162 or mdb[0:2] != HFS_MDB_SIGNATURE:
             return False
 
-        alloc_size = self._u32(mdb, 20)
-        alloc_count = self._u16(mdb, 18)
-        first_alloc = self._u16(mdb, 28)
-        cat_size = self._u32(mdb, 146)
+        alloc_size = unpack('>I', mdb[20 : 24])[0]
+        alloc_count = unpack('>H', mdb[18 : 20])[0]
+        first_alloc = unpack('>H', mdb[28 : 30])[0]
+        cat_size = unpack('>I', mdb[146 : 150])[0]
         cat_ext = self._parse_extents(mdb[150:162])
 
         if alloc_size == 0 or alloc_size % HFS_LOGICAL_BLOCK_SIZE != 0:
@@ -266,7 +259,7 @@ class HfsFS(FileSystem):
         if len(first) < 136 or first[0:2] != HFS_APM_SIGNATURE:
             return None
 
-        count = self._u32(first, 4)
+        count = unpack('>I', first[4 : 8])[0]
         if count == 0 or count > 4096:
             return None
 
@@ -277,7 +270,7 @@ class HfsFS(FileSystem):
             if len(entry) < 136 or entry[0:2] != HFS_APM_SIGNATURE:
                 continue
 
-            start_block = self._u32(entry, 8)
+            start_block = unpack('>I', entry[8 : 12])[0]
             part_type = self._decode_text(entry[48:80])
             vol_off = apm_base + start_block * block_size
 
@@ -295,7 +288,7 @@ class HfsFS(FileSystem):
 
         ddr = self._read_stream(0, 512)
         if len(ddr) >= 8 and ddr[0:2] == HFS_DDR_SIGNATURE:
-            block_size = self._u16(ddr, 2)
+            block_size = unpack('>H', ddr[2 : 4])[0]
             found = self._find_apm_hfs_partition(0, block_size)
             if found is not None:
                 return found
@@ -318,7 +311,7 @@ class HfsFS(FileSystem):
 
             ddr = self._read_stream(pos, 512)
             if len(ddr) >= 8 and ddr[0:2] == HFS_DDR_SIGNATURE:
-                block_size = self._u16(ddr, 2)
+                block_size = unpack('>H', ddr[2 : 4])[0]
                 found = self._find_apm_hfs_partition(pos, block_size)
                 if found is not None:
                     return found
@@ -384,15 +377,15 @@ class HfsFS(FileSystem):
 
         self.mdb = {
             'signature': mdb[0:2],
-            'created': self._mac_time(self._u32(mdb, 2)),
-            'modified': self._mac_time(self._u32(mdb, 6)),
-            'allocation_block_count': self._u16(mdb, 18),
-            'allocation_block_size': self._u32(mdb, 20),
-            'first_allocation_block': self._u16(mdb, 28),
+            'created': HfsFS._mac_time(unpack('>I', mdb[2 : 6])[0]),
+            'modified': HfsFS._mac_time(unpack('>I', mdb[6 : 10])[0]),
+            'allocation_block_count': unpack('>H', mdb[18 : 20])[0],
+            'allocation_block_size': unpack('>I', mdb[20 : 24])[0],
+            'first_allocation_block': unpack('>H', mdb[28 : 30])[0],
             'volume_name': self._pstring(mdb[36:64]),
-            'extents_file_size': self._u32(mdb, 130),
+            'extents_file_size': unpack('>I', mdb[130 : 134])[0],
             'extents_file_extents': self._parse_extents(mdb[134:146]),
-            'catalog_file_size': self._u32(mdb, 146),
+            'catalog_file_size': unpack('>I', mdb[146 : 150])[0],
             'catalog_file_extents': self._parse_extents(mdb[150:162]),
         }
 
@@ -459,53 +452,40 @@ class HfsFS(FileSystem):
         records = {}
         if not data:
             return records
-
         tree = HfsBTree(data)
-
         for rec in tree.leaf_records():
             if len(rec) < 20 or rec[0] != 7:
                 continue
-
             fork_type = rec[1]
-            file_id = self._u32(rec, 2)
-            fabn = self._u16(rec, 6)
+            file_id = unpack('>I', rec[2 : 6])[0]
+            fabn = unpack('>H', rec[6 : 8])[0]
             extents = self._parse_extents(rec[8:20])
-
             if extents:
                 records.setdefault((file_id, fork_type), []).append((fabn, extents))
-
         return records
 
     def load_extents_overflow(self):
         self.extents_overflow = {}
-
         size = self.mdb['extents_file_size']
         initial = self.mdb['extents_file_extents']
-
         if not size or not initial:
             return self.extents_overflow
-
         extents = list(initial)
-
         # Usually one pass is enough. Extra passes allow the extents-overflow
         # file to describe additional extents of itself.
         for _ in range(3):
             data = self._read_from_extents(extents, size)
             parsed = self._parse_extents_overflow_records(data)
             self.extents_overflow = parsed
-
             new_extents = self._resolve_extents_from_current_overflow(
                 HFS_EXTENTS_CNID,
                 HFS_DATA_FORK,
                 initial,
                 size,
             )
-
             if new_extents == extents:
                 break
-
             extents = new_extents
-
         return self.extents_overflow
 
     def _catalog_leaf_records(self):
@@ -522,7 +502,7 @@ class HfsFS(FileSystem):
         if key_len == 0 or len(rec) < 1 + key_len:
             return None
 
-        parent_id = self._u32(rec, 2)
+        parent_id = unpack('>I', rec[2 : 6])[0]
         name_len = rec[6]
         name = self._decode_text(rec[7:7 + name_len]).replace('/', ':')
 
@@ -537,35 +517,32 @@ class HfsFS(FileSystem):
         key = self._parse_catalog_key(rec)
         if key is None or len(rec) <= key['data_offset']:
             return None
-
         data = rec[key['data_offset']:]
         record_type = data[0]
-
         if record_type == 1 and len(data) >= 70:  # directory record
             return {
                 'kind': 'directory',
                 'name': key['name'],
                 'parent_id': key['parent_id'],
-                'cnid': self._u32(data, 6),
-                'created': self._mac_time(self._u32(data, 10)),
-                'modified': self._mac_time(self._u32(data, 14)),
+                'cnid': unpack('>I', data[6 : 10])[0],
+                'created': HfsFS._mac_time(unpack('>I', data[10 : 14])[0]),
+                'modified': HfsFS._mac_time(unpack('>I', data[14 : 18])[0]),
             }
-
         if record_type == 2 and len(data) >= 102:  # file record
             return {
                 'kind': 'file',
                 'name': key['name'],
                 'parent_id': key['parent_id'],
-                'cnid': self._u32(data, 20),
-                'created': self._mac_time(self._u32(data, 44)),
-                'modified': self._mac_time(self._u32(data, 48)),
+                'cnid': unpack('>I', data[20 : 24])[0],
+                'created': HfsFS._mac_time(unpack('>I', data[44 : 48])[0]),
+                'modified': HfsFS._mac_time(unpack('>I', data[48 : 52])[0]),
 
                 # Data fork only, to match your IsoFS iterator shape.
-                'data_length': self._u32(data, 26),
+                'data_length': unpack('>I', data[26 : 30])[0],
                 'data_extents': self._parse_extents(data[74:86]),
 
                 # Parsed, but not yielded.
-                'resource_length': self._u32(data, 36),
+                'resource_length': unpack('>I', data[36 : 40])[0],
                 'resource_extents': self._parse_extents(data[86:98]),
             }
 
