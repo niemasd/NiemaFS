@@ -232,8 +232,8 @@ class HfsFS(FileSystem):
     def _parse_extents(self, data):
         out = []
         for i in range(0, min(len(data), 12), 4):
-            start = self._u16(data, i)
-            count = self._u16(data, i + 2)
+            start = unpack('>H', data[i : i+2])[0]
+            count = unpack('>H', data[i+2 : i+4])[0]
             if count:
                 out.append((start, count))
         return out
