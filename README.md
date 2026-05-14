@@ -56,6 +56,14 @@ with open(target_path, 'rb') as target_file:
     fs = GcRarcFS(path=target_path, file_obj=target_file)
 ```
 
+### [`HfsFS`](https://niema.net/NiemaFS/#niemafs.HfsFS) — Apple HFS Image
+
+```python
+from niemafs import HfsFS
+with open(target_path, 'rb') as target_file:
+    fs = HfsFS(path=target_path, file_obj=target_file)
+```
+
 ### [`IsoFS`](https://niema.net/NiemaFS/#niemafs.IsoFS) — ISO 9660 Disc Image
 
 ```python
