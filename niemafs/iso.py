@@ -535,5 +535,5 @@ class IsoFS(FileSystem):
                 # next entry is a file (yield it)
                 else:
                     next_data = self.read_extent(next_entry['data_location_LE'], next_entry['data_length_LE'])
-                    yield (curr_path / str(next_entry_fn), next_entry['datetime'], next_data)
+                    yield (curr_path / next_entry_fn, next_entry['datetime'], next_data)
                 ind += next_len
