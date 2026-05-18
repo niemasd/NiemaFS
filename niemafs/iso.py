@@ -524,6 +524,8 @@ class IsoFS(FileSystem):
                     break
                 next_entry = IsoFS.parse_directory_record(curr_data[ind:ind + next_len])
                 next_entry_fn = next_entry['filename']
+                if not isinstance(next_entry_fn, str):
+                    next_entry_fn = str(next_entry_fn) # handle wonky filenames
 
                 # next entry is a directory (add it to `to_visit`)
                 if next_entry['file_flags']['is_directory']:
@@ -533,5 +535,5 @@ class IsoFS(FileSystem):
                 # next entry is a file (yield it)
                 else:
                     next_data = self.read_extent(next_entry['data_location_LE'], next_entry['data_length_LE'])
-                    yield (curr_path / next_entry_fn, next_entry['datetime'], next_data)
+                    yield (curr_path / str(next_entry_fn), next_entry['datetime'], next_data)
                 ind += next_len
