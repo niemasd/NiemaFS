@@ -7,6 +7,7 @@ Handle Apple HFS file systems
 from niemafs.common import FileSystem
 
 # imports
+from codecs import lookup as lookup_codec
 from datetime import datetime, timedelta
 from math import ceil
 from pathlib import Path
@@ -25,6 +26,7 @@ HFS_CATALOG_CNID = 4
 HFS_DATA_FORK = 0x00
 HFS_RESOURCE_FORK = 0xFF
 HFS_SIGNATURE_SCAN_SIZE = 1024 * 1024
+DEFAULT_HFS_TEXT_ENCODING = 'mac_roman'
 
 # Physical sector size, user-data offset within sector, user-data bytes.
 # The 2352/16 case is what makes an APM/DDR "ER" appear at file offset 0x10.
@@ -39,6 +41,7 @@ COMMON_HFS_LAYOUT_CANDIDATES = [
     (2064, 16, 2048), # sync/header + data
     (2076, 16, 2048), # sync/header + data + EDC/zero
 ]
+
 
 class HfsBTree:
     '''Class to represent HFS B-Tree'''
@@ -143,10 +146,30 @@ class HfsBTree:
 
 class HfsFS(FileSystem):
     '''Minimal reader for classic Apple HFS, not HFS+.'''
-    def __init__(self, file_obj, path=None):
+
+    def __init__(
+        self,
+        file_obj,
+        path=None,
+        text_encoding=DEFAULT_HFS_TEXT_ENCODING,
+        text_errors='replace',
+    ):
         # set things up
         if file_obj is None:
             raise ValueError("file_obj must be a file-like")
+
+        if not text_encoding:
+            raise ValueError("text_encoding must be a non-empty Python codec name")
+
+        # Validate early so bad codec names fail clearly.
+        try:
+            lookup_codec(text_encoding)
+        except LookupError as exc:
+            raise ValueError("Unknown HFS text encoding: %r" % text_encoding) from exc
+
+        self.text_encoding = text_encoding
+        self.text_errors = text_errors
+
         super().__init__(path=path, file_obj=file_obj)
         self.physical_logical_block_size = None
         self.user_data_offset = None
@@ -162,6 +185,7 @@ class HfsFS(FileSystem):
         self.parse_master_directory_block()
         self.load_extents_overflow()
 
+    @staticmethod
     def get_mac_time(seconds):
         '''Parse integer seconds as Mac Time
 
@@ -176,23 +200,31 @@ class HfsFS(FileSystem):
         except Exception:
             return None
 
-    def decode_text(data):
-        '''Decode HFS string
+    @staticmethod
+    def decode_text_bytes(data, encoding, errors='replace'):
+        '''Decode HFS text bytes using the caller-supplied codec.
 
         Args:
             `data` (`bytes`): The raw HFS bytes representing the string
+            `encoding` (`str`): Python codec name, e.g. 'mac_roman', 'cp932', 'shift_jis'
+            `errors` (`str`): Python decode error handling, e.g. 'replace' or 'strict'
 
         Returns:
             `str`: The decoded string
         '''
         data = bytes(data).split(b'\0', 1)[0]
-        try:
-            return data.decode('mac_roman').rstrip()
-        except Exception:
-            return data.decode('latin-1', errors='replace').rstrip()
+        return data.decode(encoding, errors=errors).rstrip()
 
-    def pstring(data):
-        '''Decode a pstring (e.g. volume name)
+    def decode_text(self, data):
+        '''Decode HFS text using this filesystem instance's configured encoding.'''
+        return self.decode_text_bytes(
+            data,
+            encoding=self.text_encoding,
+            errors=self.text_errors,
+        )
+
+    def pstring(self, data):
+        '''Decode a pstring, such as a volume name.
 
         Args:
             `data` (`bytes`): The raw bytes to decode
@@ -203,7 +235,7 @@ class HfsFS(FileSystem):
         if not data:
             return ''
         n = min(data[0], len(data) - 1)
-        return HfsFS.decode_text(data[1:1 + n]).replace('/', ':')
+        return self.decode_text(data[1:1 + n]).replace('/', ':')
 
     def read_stream(self, offset, length):
         '''Read bytes from the logical user-data stream, stripping raw CD sector headers if needed.
@@ -323,7 +355,7 @@ class HfsFS(FileSystem):
             if len(entry) < 136 or entry[0:2] != HFS_APM_SIGNATURE:
                 continue
             start_block = unpack('>I', entry[8 : 12])[0]
-            part_type = HfsFS.decode_text(entry[48:80])
+            part_type = self.decode_text(entry[48:80])
             vol_off = apm_base + start_block * block_size
             if self.check_hfs(vol_off):
                 if part_type == 'Apple_HFS':
@@ -336,7 +368,7 @@ class HfsFS(FileSystem):
         '''Probe the HFS layout for the Apple Partition Map (APM)
 
         Args:
-            `scan` (`bool`): `True` to scan fo rthe HFS DDR signature, otherwise `False.
+            `scan` (`bool`): `True` to scan for the HFS DDR signature, otherwise `False`.
 
         Returns:
             `int`: The offset of the APM, otherwise `None`.
@@ -385,7 +417,7 @@ class HfsFS(FileSystem):
         if self.volume_offset is not None:
             return
 
-        # first pass: exact probes (this catches direct images and raw CD sectors cleanly)
+        # first pass: exact probes; this catches direct images and raw CD sectors cleanly
         for phys, off, user_size in COMMON_HFS_LAYOUT_CANDIDATES:
             self.physical_logical_block_size = phys
             self.user_data_offset = off
@@ -396,7 +428,8 @@ class HfsFS(FileSystem):
                 self.volume_offset = found
                 return
 
-        # second pass: signature scan (prefer non-identity/raw-CD layouts to avoid falsely treating a raw sector header as a one-time file prefix)
+        # second pass: signature scan; prefer non-identity/raw-CD layouts to avoid falsely
+        # treating a raw sector header as a one-time file prefix
         scan_order = [c for c in COMMON_HFS_LAYOUT_CANDIDATES if c[0] != c[2] or c[1] != 0]
         scan_order += [c for c in COMMON_HFS_LAYOUT_CANDIDATES if c not in scan_order]
         for phys, off, user_size in scan_order:
@@ -420,7 +453,7 @@ class HfsFS(FileSystem):
             return self.mdb
         mdb = self.read_volume(2 * HFS_LOGICAL_BLOCK_SIZE, HFS_LOGICAL_BLOCK_SIZE)
         if len(mdb) < 162 or mdb[0:2] != HFS_MDB_SIGNATURE:
-            raise ValueError("Not a classic HFS volume (missing MDB signature)")
+            raise ValueError("Not a classic HFS volume; missing MDB signature")
         self.mdb = {
             'signature': mdb[0:2],
             'created': HfsFS.get_mac_time(unpack('>I', mdb[2 : 6])[0]),
@@ -428,7 +461,7 @@ class HfsFS(FileSystem):
             'allocation_block_count': unpack('>H', mdb[18 : 20])[0],
             'allocation_block_size': unpack('>I', mdb[20 : 24])[0],
             'first_allocation_block': unpack('>H', mdb[28 : 30])[0],
-            'volume_name': HfsFS.pstring(mdb[36:64]),
+            'volume_name': self.pstring(mdb[36:64]),
             'extents_file_size': unpack('>I', mdb[130 : 134])[0],
             'extents_file_extents': self.parse_extents(mdb[134:146]),
             'catalog_file_size': unpack('>I', mdb[146 : 150])[0],
@@ -444,7 +477,7 @@ class HfsFS(FileSystem):
         Args:
             `extents` (`list`): The extents to read from
 
-            `length` (`int`): The number of blocks to read
+            `length` (`int`): The number of bytes to read
 
         Returns:
             `bytes`: The read data
@@ -457,7 +490,10 @@ class HfsFS(FileSystem):
             if remaining <= 0:
                 break
             n = min(remaining, count * self.allocation_block_size)
-            allocation_block_offset = self.first_allocation_block * HFS_LOGICAL_BLOCK_SIZE + start * self.allocation_block_size
+            allocation_block_offset = (
+                self.first_allocation_block * HFS_LOGICAL_BLOCK_SIZE
+                + start * self.allocation_block_size
+            )
             out.extend(self.read_volume(allocation_block_offset, n))
             remaining -= n
         if len(out) < length:
@@ -511,7 +547,9 @@ class HfsFS(FileSystem):
         if not size or not initial:
             return self.extents_overflow
         extents = list(initial)
-        # usually one pass is enough: extra passes allow the extents-overflow file to describe additional extents of itself
+
+        # Usually one pass is enough. Extra passes allow the extents-overflow file
+        # to describe additional extents of itself.
         for _ in range(3):
             data = self.read_from_extents(extents, size)
             parsed = self.parse_extents_overflow_records(data)
@@ -537,15 +575,40 @@ class HfsFS(FileSystem):
         return HfsBTree(data).leaf_records()
 
     def parse_catalog_key(self, rec):
-        key_len = rec[0]
-        if key_len == 0 or len(rec) < 1 + key_len:
+        if len(rec) < 7:
             return None
+
+        key_len = rec[0]
+        if key_len == 0:
+            return None
+
+        # HFS B-tree keys use a one-byte key length that does not include itself.
+        # The following catalog record data is word-aligned.
+        #
+        # This is the important bug fix:
+        #   key_len even -> 1 + key_len is odd, so there is one pad byte.
+        #   key_len odd  -> 1 + key_len is already even.
+        data_offset = (key_len | 1) + 1
+
+        if len(rec) < data_offset:
+            return None
+
         parent_id = unpack('>I', rec[2 : 6])[0]
         name_len = rec[6]
-        name = HfsFS.decode_text(rec[7:7 + name_len]).replace('/', ':')
+
+        # HFS names are Str31 values.
+        if name_len > 31:
+            return None
+
+        # Make sure the declared name fits inside the key area, excluding padding.
+        if 7 + name_len > 1 + key_len:
+            return None
+
+        name = self.decode_text(rec[7:7 + name_len]).replace('/', ':')
+
         return {
             'key_len': key_len,
-            'data_offset': 1 + key_len,
+            'data_offset': data_offset,
             'parent_id': parent_id,
             'name': name,
         }
@@ -554,8 +617,10 @@ class HfsFS(FileSystem):
         key = self.parse_catalog_key(rec)
         if key is None or len(rec) <= key['data_offset']:
             return None
+
         data = rec[key['data_offset']:]
         record_type = data[0]
+
         if record_type == 1 and len(data) >= 70:  # directory record
             return {
                 'kind': 'directory',
@@ -565,6 +630,7 @@ class HfsFS(FileSystem):
                 'created': HfsFS.get_mac_time(unpack('>I', data[10 : 14])[0]),
                 'modified': HfsFS.get_mac_time(unpack('>I', data[14 : 18])[0]),
             }
+
         if record_type == 2 and len(data) >= 102:  # file record
             return {
                 'kind': 'file',
@@ -582,6 +648,7 @@ class HfsFS(FileSystem):
                 'resource_length': unpack('>I', data[36 : 40])[0],
                 'resource_extents': self.parse_extents(data[86:98]),
             }
+
         return None
 
     def load_catalog_records(self):
@@ -628,5 +695,10 @@ class HfsFS(FileSystem):
 
                 # next entry is a file: read and yield it
                 elif next_entry['kind'] == 'file':
-                    next_data = self.read_fork(next_entry['cnid'], HFS_DATA_FORK, next_entry['data_extents'], next_entry['data_length'])
+                    next_data = self.read_fork(
+                        next_entry['cnid'],
+                        HFS_DATA_FORK,
+                        next_entry['data_extents'],
+                        next_entry['data_length'],
+                    )
                     yield (next_path, next_entry['modified'], next_data)
