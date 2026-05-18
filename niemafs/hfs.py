@@ -26,7 +26,7 @@ HFS_CATALOG_CNID = 4
 HFS_DATA_FORK = 0x00
 HFS_RESOURCE_FORK = 0xFF
 HFS_SIGNATURE_SCAN_SIZE = 1024 * 1024
-DEFAULT_HFS_TEXT_ENCODING = 'mac_roman'
+DEFAULT_HFS_TEXT_ENCODING = 'cp932'
 
 # Physical sector size, user-data offset within sector, user-data bytes.
 # The 2352/16 case is what makes an APM/DDR "ER" appear at file offset 0x10.
