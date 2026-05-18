@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 '''
-Handle Apple HFS fil systems
+Handle Apple HFS file systems
 '''
 
 # NiemaFS imports
