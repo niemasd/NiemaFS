@@ -8,6 +8,7 @@ from niemafs.dir import DirFS
 from niemafs.gcn import GcmFS, GcRarcFS, TgcFS
 from niemafs.hfs import HfsFS
 from niemafs.iso import IsoFS
+from niemafs.pcecd import PceCdFS
 from niemafs.tar import TarFS
 from niemafs.zip import ZipFS
 
@@ -18,6 +19,7 @@ __all__ = [
     'GcmFS', 'GcRarcFS', 'TgcFS',                          # gcn.py
     'HfsFS',                                               # hfs.py
     'IsoFS',                                               # iso.py
+    'PceCdFS',                                             # pcecd.py
     'TarFS',                                               # tar.py
     'ZipFS',                                               # zip.py
 ]

@@ -72,6 +72,14 @@ with open(target_path, 'rb') as target_file:
     fs = IsoFS(path=target_path, file_obj=target_file)
 ```
 
+### `PceCdFS` — PC Engine CD / TurboGrafx-CD CUE/BIN Image
+
+```python
+from niemafs import PceCdFS
+with open(target_path, 'rb') as target_file:
+    fs = PceCdFS(path=target_path, file_obj=target_file)
+```
+
 ### [`TarFS`](https://niema.net/NiemaFS/#niemafs.TarFS) — TAR Archive
 
 ```python

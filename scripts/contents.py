@@ -14,6 +14,7 @@ import niemafs
 FORMAT_TO_CLASS = {
     'GCM':  niemafs.GcmFS,
     'ISO':  niemafs.IsoFS,
+    'PCECD': niemafs.PceCdFS,
     'RARC': niemafs.GcRarcFS,
     'TAR':  niemafs.TarFS,
     'TGC':  niemafs.TgcFS,
@@ -60,7 +61,7 @@ if __name__ == "__main__":
     # extract files
     print_log("Loading input file: %s" % args.input)
     with niemafs.open_file(args.input, 'rb') as input_file:
-        fs = FORMAT_TO_CLASS[args.format](input_file)
+        fs = FORMAT_TO_CLASS[args.format](path=args.input, file_obj=input_file)
         if args.output is not None:
             print_log("Extracting files to: %s" % args.output)
             args.output.mkdir()
