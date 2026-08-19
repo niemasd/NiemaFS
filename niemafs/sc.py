@@ -684,10 +684,7 @@ class ScFS(FileSystem):
     def get_resource_basename(self, resource, storage_suffix=True):
         '''Return the stable filename used for a logical resource.'''
         extension = safename(resource['type_code'], 'bin')
-        name = '%04d_id%08d.%s' % (resource['index'], resource['resource_id'], extension)
-        if storage_suffix and resource['contains_rdat']:
-            name += '.stored'
-        return name
+        return '%04d_id%08d.%s' % (resource['index'], resource['resource_id'], extension)
 
     def get_chunk_basename(self, chunk):
         '''Return a stable filename for one SCX flat chunk payload.'''
