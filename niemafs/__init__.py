@@ -4,12 +4,13 @@ from warnings import warn
 
 # NiemaFS imports
 from niemafs.common import clean_string, FileSystem, open_file, safename
-from niemafs.dir import DirFS
-from niemafs.gcn import GcmFS, GcRarcFS, TgcFS
-from niemafs.hfs import HfsFS
-from niemafs.iso import IsoFS
-from niemafs.tar import TarFS
-from niemafs.zip import ZipFS
+from niemafs.dir    import DirFS
+from niemafs.gcn    import GcmFS, GcRarcFS, TgcFS
+from niemafs.hfs    import HfsFS
+from niemafs.iso    import IsoFS
+from niemafs.sc     import ScgFS, ScwFS, ScxFS
+from niemafs.tar    import TarFS
+from niemafs.zip    import ZipFS
 
 # build __all__
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     'GcmFS', 'GcRarcFS', 'TgcFS',                          # gcn.py
     'HfsFS',                                               # hfs.py
     'IsoFS',                                               # iso.py
+    'ScgFS', 'ScwFS', 'ScxFS',                             # sc.py
     'TarFS',                                               # tar.py
     'ZipFS',                                               # zip.py
 ]

@@ -29,16 +29,22 @@ def clean_string(s):
     else:
         return s.rstrip()
 
-def safename(s):
+def safename(s, failsafe=None):
     '''Convert a string into a version that is safe for a filename
     
     Args:
         `s` (`str`): The original string.
 
+        `failsafe` (`str`): A failsafe to use if unable to convert `s`.
+
     Returns:
         `str`: A version of `s` that is safe for a filename.
     '''
-    return ''.join(c if c in SAFE_CHARS else '_' for c in s)
+    tmp = ''.join(c if c in SAFE_CHARS else '_' for c in s)
+    if (failsafe is not None) and (tmp.count('_') == len(tmp)):
+        return failsafe
+    else:
+        return tmp
 
 def open_file(path, mode='rb', buffering=DEFAULT_BUFFER_SIZE, compresslevel=DEFAULT_COMPRESS_LEVEL):
     '''Open a file for reading, writing, or appending. Automatically handles GZIP compression.
@@ -109,3 +115,15 @@ class FileSystem(ABC):
         if return_to_init:
             self.file.seek(start_offset)
         return data
+
+    def get_file_size(self):
+        '''Return the total size of the underlying `file`-like object.
+
+        Returns:
+            `int`: The total size of the underlying `file`-like object.
+        '''
+        start_offset = self.file.tell()
+        self.file.seek(0, 2)
+        file_size = self.file.tell()
+        self.file.seek(start_offset)
+        return file_size

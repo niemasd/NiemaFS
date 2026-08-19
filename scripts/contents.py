@@ -15,6 +15,9 @@ FORMAT_TO_CLASS = {
     'GCM':  niemafs.GcmFS,
     'ISO':  niemafs.IsoFS,
     'RARC': niemafs.GcRarcFS,
+    'SCG':  niemafs.ScgFS,
+    'SCW':  niemafs.ScwFS,
+    'SCX':  niemafs.ScxFS,
     'TAR':  niemafs.TarFS,
     'TGC':  niemafs.TgcFS,
     'ZIP':  niemafs.ZipFS,
@@ -34,12 +37,12 @@ def print_log(s='', end='\n', file=stdout):
 def error(s, end='\n', file=stderr, exitcode=1):
     print_log("ERROR: %s" % s, end=end, file=file); exit(exitcode)
 
-# run tool
-if __name__ == "__main__":
+# main program logic
+def main():
     # parse user args
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--input', required=True, type=str, help="Input File")
-    parser.add_argument('-f', '--format', required=True, type=str, help="Input Format (options: %s)" % ', '.join(sorted(FORMAT_TO_CLASS.keys())))
+    parser.add_argument('-f', '--format', required=False, type=str, default=None, help="Input Format (options: %s)" % ', '.join(sorted(FORMAT_TO_CLASS.keys())))
     parser.add_argument('-o', '--output', required=False, type=str, default=None, help="Output Directory for Extraction")
     args = parser.parse_args()
 
@@ -47,7 +50,10 @@ if __name__ == "__main__":
     args.input = Path(args.input)
     if not args.input.is_file():
         error("Input file not found: %s" % args.input)
-    args.format = args.format.strip().upper()
+    if args.format is None:
+        args.format = args.input.suffix.lstrip('.').strip().upper()
+    else:
+        args.format = args.format.strip().upper()
     if args.format not in FORMAT_TO_CLASS:
         error("Invalid input format (%s). Options: %s" % (args.format, ', '.join(sorted(FORMAT_TO_CLASS.keys()))))
     if args.output is not None:
@@ -82,3 +88,10 @@ if __name__ == "__main__":
                 else: # file
                     with niemafs.open_file(out_path, 'wb') as output_file:
                         output_file.write(curr_data)
+
+# run script
+if __name__ == "__main__":
+    try:
+        main()
+    except BrokenPipeError:
+        pass
