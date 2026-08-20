@@ -72,6 +72,30 @@ with open(target_path, 'rb') as target_file:
     fs = IsoFS(path=target_path, file_obj=target_file)
 ```
 
+### [`ScgFS`](https://niema.net/NiemaFS/#niemafs.ScgFS) — EA Lord of the Rings (GameCube) SCG Archive
+
+```python
+from niemafs import ScgFS
+with open(target_path, 'rb') as target_file:
+    fs = ScgFS(path=target_path, file_obj=target_file)
+```
+
+### [`ScwFS`](https://niema.net/NiemaFS/#niemafs.ScwFS) — EA Lord of the Rings (Windows) SCG Archive
+
+```python
+from niemafs import ScwFS
+with open(target_path, 'rb') as target_file:
+    fs = ScwFS(path=target_path, file_obj=target_file)
+```
+
+### [`ScxFS`](https://niema.net/NiemaFS/#niemafs.ScxFS) — EA Lord of the Rings (XBOX) SCG Archive
+
+```python
+from niemafs import ScxFS
+with open(target_path, 'rb') as target_file:
+    fs = ScxFS(path=target_path, file_obj=target_file)
+```
+
 ### [`TarFS`](https://niema.net/NiemaFS/#niemafs.TarFS) — TAR Archive
 
 ```python
