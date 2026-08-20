@@ -80,7 +80,7 @@ with open(target_path, 'rb') as target_file:
     fs = ScgFS(path=target_path, file_obj=target_file)
 ```
 
-### [`ScwFS`](https://niema.net/NiemaFS/#niemafs.ScwFS) — EA Lord of the Rings (Windows) SCG Archive
+### [`ScwFS`](https://niema.net/NiemaFS/#niemafs.ScwFS) — EA Lord of the Rings (Windows) SCW Archive
 
 ```python
 from niemafs import ScwFS
@@ -88,7 +88,7 @@ with open(target_path, 'rb') as target_file:
     fs = ScwFS(path=target_path, file_obj=target_file)
 ```
 
-### [`ScxFS`](https://niema.net/NiemaFS/#niemafs.ScxFS) — EA Lord of the Rings (XBOX) SCG Archive
+### [`ScxFS`](https://niema.net/NiemaFS/#niemafs.ScxFS) — EA Lord of the Rings (XBOX) SCX Archive
 
 ```python
 from niemafs import ScxFS
