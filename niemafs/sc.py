@@ -643,10 +643,55 @@ class ScFS(FileSystem):
         warnings = list()
 
         while position < end:
-            if end - position < 8:
-                raise ValueError('truncated STOC-v2 chunk header at 0x%X' % position)
+            if end - position < 4:
+                raise ValueError('truncated STOC-v2 chunk tag at 0x%X' % position)
             tag = self.read_tag(position)
             counts[tag] = counts.get(tag, 0) + 1
+
+            # Most STOC-v2 FILL chunks use the normal ``tag + size`` form.
+            # Some Third Age archives instead place only the four-byte FILL
+            # sentinel at the end of a 64 KiB page; the following chunk starts
+            # exactly at the next page boundary.  In that form, reading the
+            # next FourCC as a size produces values such as 0x53484F43
+            # (``SHOC``).  Accept either representation, as the legacy stream
+            # parser already does, while checking that the aligned destination
+            # begins with another recognized top-level chunk.
+            if tag == 'FILL':
+                declared = self.read_u32(position + 4) if end - position >= 8 else 0
+                declared_end = position + declared
+                aligned_end = align_up(position + 4, PAGE_SIZE)
+                if declared >= 8 and declared_end <= end:
+                    next_position = declared_end
+                elif position < aligned_end <= end:
+                    if aligned_end < end:
+                        next_tag = self.read_tag(aligned_end)
+                        if next_tag not in STREAM_TOP_LEVEL_TAGS:
+                            raise ValueError(
+                                'marker-only FILL at 0x%X in STOC-v2 package %r '
+                                'aligns to unknown chunk %r at 0x%X'
+                                % (
+                                    position,
+                                    entry['name'],
+                                    printable_tag(next_tag),
+                                    aligned_end,
+                                )
+                            )
+                    next_position = aligned_end
+                else:
+                    raise ValueError(
+                        'invalid FILL chunk size 0x%X at 0x%X in STOC-v2 package %r'
+                        % (declared, position, entry['name'])
+                    )
+                if next_position <= position:
+                    raise ValueError(
+                        'FILL chunk at 0x%X does not advance in STOC-v2 package %r'
+                        % (position, entry['name'])
+                    )
+                position = next_position
+                continue
+
+            if end - position < 8:
+                raise ValueError('truncated STOC-v2 chunk header at 0x%X' % position)
             total_size = self.read_u32(position + 4)
             if total_size < 8 or total_size > end - position:
                 raise ValueError(
