@@ -10,12 +10,19 @@ from niemafs.common import FileSystem, safename
 from pathlib import Path
 from struct import unpack
 import re
+import zlib
 
 # constants
 PAGE_SIZE = 0x10000
 STREAM_TOP_LEVEL_TAGS = {'STOC', 'SWVR', 'FILL', 'CTRL', 'SHOC', 'SONO', 'PADD'}
 RESOURCE_INNER_TAGS = {'SHDR', 'SDAT', 'Rdat'}
 SUPPORTED_FORMATS = {'auto', 'scg', 'scw', 'scx'}
+STOC_V2_VERSION = 2
+STOC_V2_RECORDS_OFFSET = 0x38
+STOC_V2_RECORD_SIZE = 0x20
+STOC_V2_MAX_RECORDS = 1000000
+STOC_V2_RESOURCE_TAGS = {'SHOC', 'SONO'}
+STOC_V2_VARIANT = 'third-age-stoc-v2-swvr'
 FORMAT_LAYOUTS = {
     'scg': {
         'format_code': 'SCG',
@@ -110,6 +117,11 @@ class ScFS(FileSystem):
         self.reverse_tags = layout['reverse_tags']
         self.byte_order = layout['byte_order']
         self.variant = layout['variant']
+        self.stoc_version = None
+        if self.family == 'stream' and self.looks_like_stoc_v2(self.endian, self.reverse_tags):
+            self.stoc_version = STOC_V2_VERSION
+            self.variant = STOC_V2_VARIANT
+        self.companion_bulk_path = None
         archive = self.parse_archive()
         self.toc_size = archive['toc_size']
         self.toc_entries = archive['toc_entries']
@@ -117,6 +129,7 @@ class ScFS(FileSystem):
         self.chunks = archive['chunks']
         self.bulk_offset = archive['bulk_offset']
         self.bulk_size = archive['bulk_size']
+        self.companion_bulk_path = archive.get('companion_bulk_path')
         self.trailing_offset = archive['trailing_offset']
         self.trailing_size = archive['trailing_size']
         self.warnings = archive['warnings']
@@ -173,8 +186,91 @@ class ScFS(FileSystem):
         except (TypeError, ValueError):
             return ''
 
+    def looks_like_stoc_v2(self, endian, reverse_tags, offset=0):
+        '''Return `True` for the versioned STOC package catalog used by The Third Age.'''
+        if endian != '>' or reverse_tags:
+            return False
+        if offset < 0 or self.file_size - offset < STOC_V2_RECORDS_OFFSET + STOC_V2_RECORD_SIZE:
+            return False
+        try:
+            if self.probe_tag(offset, reverse_tags) != 'STOC':
+                return False
+            outer_size = self.probe_u32(offset + 4, endian)
+            if outer_size < STOC_V2_RECORDS_OFFSET or outer_size > self.file_size - offset:
+                return False
+            inner = offset + 16
+            if self.probe_tag(inner, reverse_tags) != 'STOC':
+                return False
+            version = self.probe_u32(inner + 4, endian)
+            inner_size = self.probe_u32(inner + 8, endian)
+            count_a = self.probe_u32(inner + 12, endian)
+            count_b = self.probe_u32(inner + 28, endian)
+            if version != STOC_V2_VERSION or inner_size < 40:
+                return False
+            if not 1 <= count_a <= STOC_V2_MAX_RECORDS or count_a != count_b:
+                return False
+            catalog_end = max(offset + outer_size, inner + inner_size)
+            if catalog_end > self.file_size:
+                return False
+            records_offset = inner + 40
+            records_end = records_offset + count_a * STOC_V2_RECORD_SIZE
+            if records_end > catalog_end:
+                return False
+            package_offset = self.probe_u32(records_offset + 4, endian)
+            package_size = self.probe_u32(records_offset + 8, endian)
+            if package_size < 8 or package_offset < catalog_end:
+                return False
+            if package_offset + package_size > self.file_size:
+                return False
+            return self.probe_tag(package_offset, reverse_tags) == 'SWVR'
+        except ValueError:
+            return False
+
+    def get_source_path(self):
+        '''Return the source archive path when one is available.'''
+        candidate = self.path
+        if candidate is None:
+            candidate = getattr(self.file_obj, 'name', None)
+            if isinstance(candidate, str) and candidate.startswith('<'):
+                return None
+        if candidate is None:
+            return None
+        try:
+            return Path(candidate)
+        except (TypeError, ValueError):
+            return None
+
+    def find_companion_sas(self):
+        '''Return a same-stem `.sas` companion path when one exists.'''
+        source_path = self.get_source_path()
+        if source_path is None:
+            return None
+
+        for suffix in ('.sas', '.SAS'):
+            candidate = source_path.with_suffix(suffix)
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                pass
+
+        try:
+            siblings = source_path.parent.iterdir()
+        except OSError:
+            return None
+        wanted_stem = source_path.stem.lower()
+        for candidate in siblings:
+            try:
+                if candidate.is_file() and candidate.stem.lower() == wanted_stem and candidate.suffix.lower() == '.sas':
+                    return candidate
+            except OSError:
+                continue
+        return None
+
     def looks_like_nested_stoc(self, endian, reverse_tags, offset=0):
-        '''Return `True` when *offset* starts the known nested STOC directory.'''
+        '''Return `True` when *offset* starts a supported nested STOC directory.'''
+        if self.looks_like_stoc_v2(endian, reverse_tags, offset=offset):
+            return True
         if offset < 0 or self.file_size - offset < 48:
             return False
         try:
@@ -335,6 +431,89 @@ class ScFS(FileSystem):
             return None
         return self.read_file(0, self.toc_size)
 
+    def parse_stoc_v2_toc(self):
+        '''Parse a version-2 STOC catalog into package entries.'''
+        outer_size = self.read_u32(4)
+        if outer_size < STOC_V2_RECORDS_OFFSET or outer_size > self.file_size:
+            raise ValueError('invalid outer STOC-v2 size 0x%X' % outer_size)
+        inner_offset = 16
+        if self.read_tag(inner_offset) != 'STOC':
+            raise ValueError('outer STOC-v2 does not contain the expected nested STOC at +0x10')
+
+        version = self.read_u32(inner_offset + 4)
+        inner_size = self.read_u32(inner_offset + 8)
+        count_a = self.read_u32(inner_offset + 12)
+        count_b = self.read_u32(inner_offset + 28)
+        if version != STOC_V2_VERSION:
+            raise ValueError('unsupported nested STOC version 0x%X' % version)
+        if inner_size < 40:
+            raise ValueError('invalid nested STOC-v2 size 0x%X' % inner_size)
+        if count_a != count_b:
+            raise ValueError('STOC-v2 entry counts disagree (%d vs %d)' % (count_a, count_b))
+        if not 1 <= count_a <= STOC_V2_MAX_RECORDS:
+            raise ValueError('implausible STOC-v2 entry count %d' % count_a)
+
+        catalog_limit = max(outer_size, inner_offset + inner_size)
+        if catalog_limit > self.file_size:
+            raise ValueError('STOC-v2 catalog extends beyond the archive')
+        records_offset = inner_offset + 40
+        records_size = count_a * STOC_V2_RECORD_SIZE
+        if records_offset + records_size > catalog_limit:
+            raise ValueError('STOC-v2 entry table extends beyond the nested catalog')
+
+        catalog = self.read_file(0, catalog_limit)
+        entries = list()
+        occupied = list()
+        for index in range(count_a):
+            position = records_offset + index * STOC_V2_RECORD_SIZE
+            (
+                name_offset,
+                package_offset,
+                allocated_size,
+                category,
+                declared_resource_count,
+                logical_size,
+                field_18,
+                field_1c,
+            ) = unpack(self.endian + '8I', catalog[position:position + STOC_V2_RECORD_SIZE])
+
+            if not 0 <= name_offset < catalog_limit:
+                raise ValueError('STOC-v2 entry %d has invalid name offset 0x%X' % (index, name_offset))
+            name_end = catalog.find(b'\x00', name_offset, catalog_limit)
+            if name_end < 0:
+                raise ValueError('STOC-v2 entry %d has an unterminated name' % index)
+            name = catalog[name_offset:name_end].decode('utf-8', 'replace')
+
+            package_end = package_offset + allocated_size
+            if allocated_size < 8 or package_offset < catalog_limit or package_end > self.file_size:
+                raise ValueError('STOC-v2 package %r has invalid range 0x%X..0x%X' % (name, package_offset, package_end))
+            if self.read_tag(package_offset) != 'SWVR':
+                raise ValueError('STOC-v2 package %r does not begin with SWVR' % name)
+
+            entries.append({
+                'layout': 'stoc-v2',
+                'index': index,
+                'name_offset': name_offset,
+                'resolved_name_offset': name_offset,
+                'offset': package_offset,
+                'length': allocated_size,
+                'end': package_end,
+                'flags': category,
+                'category': category,
+                'declared_resource_count': declared_resource_count,
+                'logical_size': logical_size,
+                'field_18': field_18,
+                'field_1c': field_1c,
+                'name': name,
+            })
+            occupied.append((package_offset, package_end, name))
+
+        occupied.sort()
+        for previous, current in zip(occupied, occupied[1:]):
+            if current[0] < previous[1]:
+                raise ValueError('STOC-v2 packages %r and %r overlap' % (previous[2], current[2]))
+        return catalog_limit, entries
+
     def parse_toc(self):
         '''Parse the nested top-level `STOC` directory used by SCG/SCW.
 
@@ -343,6 +522,8 @@ class ScFS(FileSystem):
         '''
         if self.family != 'stream' or self.read_tag(0) != 'STOC':
             return 0, list()
+        if self.stoc_version == STOC_V2_VERSION:
+            return self.parse_stoc_v2_toc()
         outer_size = self.read_u32(4)
         if outer_size < 16 or outer_size > self.file_size:
             raise ValueError('invalid outer STOC size 0x%X' % outer_size)
@@ -411,10 +592,184 @@ class ScFS(FileSystem):
         resources.append(current)
         return None
 
+    def finish_stoc_v2_resource(self, current, resources, package_name):
+        '''Finalize one STOC-v2 logical resource and append its metadata.'''
+        if current is None:
+            return None
+        if not current['blocks']:
+            raise ValueError(
+                'resource %s id 0x%X in package %r has no data chunks'
+                % (printable_tag(current['type_code']), current['resource_id'], package_name)
+            )
+
+        current['index'] = len(resources)
+        current['stored_size'] = sum(block['stored_size'] for block in current['blocks'])
+        if current['storage_mode'] == 'raw':
+            current['block_expanded_size'] = current['stored_size']
+            current['expanded_alignment_slack'] = current['stored_size'] - current['declared_expanded_size']
+            if current['stored_size'] != current['declared_expanded_size']:
+                raise ValueError(
+                    'raw resource %s id 0x%X in package %r stores 0x%X bytes, expected 0x%X'
+                    % (
+                        printable_tag(current['type_code']),
+                        current['resource_id'],
+                        package_name,
+                        current['stored_size'],
+                        current['declared_expanded_size'],
+                    )
+                )
+        elif current['storage_mode'] == 'zlib':
+            current['block_expanded_size'] = current['declared_expanded_size']
+            current['expanded_alignment_slack'] = 0
+        else:
+            raise ValueError(
+                'resource %s id 0x%X in package %r has unsupported storage mode %r'
+                % (printable_tag(current['type_code']), current['resource_id'], package_name, current['storage_mode'])
+            )
+        current['contains_rdat'] = False
+        current['all_sdat'] = current['storage_mode'] == 'raw'
+        resources.append(current)
+        return None
+
+    def parse_stoc_v2_stream(self, entry, stream_index):
+        '''Parse one STOC-v2 SWVR package into logical resource metadata.'''
+        start = entry['offset']
+        end = entry['end']
+        position = start
+        wrapper_name = ''
+        current = None
+        resources = list()
+        counts = dict()
+        warnings = list()
+
+        while position < end:
+            if end - position < 8:
+                raise ValueError('truncated STOC-v2 chunk header at 0x%X' % position)
+            tag = self.read_tag(position)
+            counts[tag] = counts.get(tag, 0) + 1
+            total_size = self.read_u32(position + 4)
+            if total_size < 8 or total_size > end - position:
+                raise ValueError(
+                    'invalid %r chunk size 0x%X at 0x%X in STOC-v2 package %r'
+                    % (printable_tag(tag), total_size, position, entry['name'])
+                )
+            chunk_end = position + total_size
+
+            if tag == 'SWVR':
+                parsed_name = self.parse_swvr_name(position, total_size)
+                if parsed_name:
+                    wrapper_name = parsed_name
+            elif tag in STOC_V2_RESOURCE_TAGS:
+                if total_size < 20:
+                    raise ValueError('short %s chunk at 0x%X in STOC-v2 package %r' % (tag, position, entry['name']))
+                body_prefix = self.read_file(position + 16, min(8, total_size - 16))
+                inner = body_prefix[:4].decode('latin-1')
+
+                if inner == 'SHDR':
+                    current = self.finish_stoc_v2_resource(current, resources, entry['name'])
+                    if total_size < 36:
+                        raise ValueError('short SHDR chunk at 0x%X in STOC-v2 package %r' % (position, entry['name']))
+                    current = {
+                        'layout': 'stoc-v2',
+                        'index': -1,
+                        'header_offset': position,
+                        'header_chunk_size': total_size,
+                        'outer_type': tag,
+                        'storage_class': self.read_u32(position + 20),
+                        'type_code': self.read_tag(position + 24),
+                        'resource_id': self.read_u32(position + 28),
+                        'declared_expanded_size': self.read_u32(position + 32),
+                        'header_extra': self.read_file(position + 36, total_size - 36),
+                        'storage_mode': None,
+                        'blocks': list(),
+                    }
+                elif body_prefix == b'SDATSHDR':
+                    if current is None:
+                        raise ValueError('orphan SDATSHDR chunk at 0x%X in STOC-v2 package %r' % (position, entry['name']))
+                    if current['storage_mode'] not in (None, 'raw'):
+                        raise ValueError('resource %s id 0x%X in package %r mixes raw and compressed data' % (printable_tag(current['type_code']), current['resource_id'], entry['name']))
+                    data_offset = position + 64
+                    if data_offset > chunk_end:
+                        raise ValueError('short SDATSHDR chunk at 0x%X in STOC-v2 package %r' % (position, entry['name']))
+                    stored_size = chunk_end - data_offset
+                    current['storage_mode'] = 'raw'
+                    current['blocks'].append({
+                        'index': len(current['blocks']),
+                        'outer_type': tag,
+                        'kind': 'SDATSHDR',
+                        'chunk_offset': position,
+                        'chunk_size': total_size,
+                        'data_offset': data_offset,
+                        'stored_size': stored_size,
+                        'expanded_size': stored_size,
+                    })
+                elif inner == 'Ldat':
+                    if current is None:
+                        raise ValueError('orphan Ldat chunk at 0x%X in STOC-v2 package %r' % (position, entry['name']))
+                    if current['storage_mode'] not in (None, 'zlib'):
+                        raise ValueError('resource %s id 0x%X in package %r mixes raw and compressed data' % (printable_tag(current['type_code']), current['resource_id'], entry['name']))
+                    if total_size < 24:
+                        raise ValueError('short Ldat chunk at 0x%X in STOC-v2 package %r' % (position, entry['name']))
+                    compressed_size = self.read_u32(position + 20)
+                    data_offset = position + 24
+                    if compressed_size > chunk_end - data_offset:
+                        raise ValueError(
+                            'Ldat chunk at 0x%X in STOC-v2 package %r declares 0x%X compressed bytes, only 0x%X available'
+                            % (position, entry['name'], compressed_size, chunk_end - data_offset)
+                        )
+                    current['storage_mode'] = 'zlib'
+                    current['blocks'].append({
+                        'index': len(current['blocks']),
+                        'outer_type': tag,
+                        'kind': 'Ldat',
+                        'chunk_offset': position,
+                        'chunk_size': total_size,
+                        'data_offset': data_offset,
+                        'stored_size': compressed_size,
+                        'expanded_size': 0,
+                    })
+                else:
+                    raise ValueError(
+                        'unknown %s resource body %r at 0x%X in STOC-v2 package %r'
+                        % (tag, body_prefix, position, entry['name'])
+                    )
+            position = chunk_end
+
+        current = self.finish_stoc_v2_resource(current, resources, entry['name'])
+        if position != end:
+            raise ValueError('STOC-v2 package %r ends at 0x%X, expected 0x%X' % (entry['name'], position, end))
+        if len(resources) != entry['declared_resource_count']:
+            raise ValueError(
+                'STOC-v2 package %r contains %d resources, catalog declares %d'
+                % (entry['name'], len(resources), entry['declared_resource_count'])
+            )
+
+        return {
+            'layout': 'stoc-v2',
+            'index': stream_index,
+            'toc_index': entry['index'],
+            'toc_name': entry['name'],
+            'wrapper_name': wrapper_name,
+            'offset': entry['offset'],
+            'length': entry['length'],
+            'end': entry['end'],
+            'flags': entry['flags'],
+            'category': entry['category'],
+            'declared_resource_count': entry['declared_resource_count'],
+            'logical_size': entry['logical_size'],
+            'field_18': entry['field_18'],
+            'field_1c': entry['field_1c'],
+            'chunk_counts': dict(sorted(counts.items())),
+            'resources': resources,
+            'warnings': warnings,
+        }
+
     def parse_stream(self, entry, stream_index):
         '''Parse one SCG/SCW indexed stream into resource metadata.'''
         if self.family != 'stream':
             raise ValueError('SCX flat archives do not contain SWVR streams')
+        if entry.get('layout') == 'stoc-v2':
+            return self.parse_stoc_v2_stream(entry, stream_index)
         start = entry['offset']
         end = entry['end']
         position = start
@@ -519,7 +874,8 @@ class ScFS(FileSystem):
                                 'expanded_size': self.read_u32(position + 64),
                             })
                     else:
-                        counts['%s/%s' % (tag, printable_tag(inner))] += 1
+                        key = '%s/%s' % (tag, printable_tag(inner))
+                        counts[key] = counts.get(key, 0) + 1
             position = chunk_end
         self.finish_resource(current, resources)
         return {
@@ -561,16 +917,39 @@ class ScFS(FileSystem):
         streams = [self.parse_stream(entry, stream_index) for stream_index, entry in enumerate(nonempty_entries)]
         indexed_end = max([entry['end'] for entry in nonempty_entries] or [toc_size])
         indexed_end = max(indexed_end, toc_size)
-        bulk_offset = min(indexed_end, self.file_size)
+
+        companion_bulk_path = None
+        if self.stoc_version == STOC_V2_VERSION:
+            companion_bulk_path = self.find_companion_sas()
+            if companion_bulk_path is None:
+                bulk_offset = None
+                bulk_size = 0
+                if self.bulk_mode != 'none':
+                    warnings.append('no same-stem .sas companion file was found')
+            else:
+                try:
+                    bulk_size = companion_bulk_path.stat().st_size
+                except OSError as error:
+                    raise ValueError('unable to stat companion SAS %s: %s' % (companion_bulk_path, error))
+                bulk_offset = None
+            trailing_offset = min(indexed_end, self.file_size)
+            trailing_size = self.file_size - trailing_offset
+        else:
+            bulk_offset = min(indexed_end, self.file_size)
+            bulk_size = self.file_size - bulk_offset
+            trailing_offset = self.file_size
+            trailing_size = 0
+
         return {
             'toc_size': toc_size,
             'toc_entries': toc_entries,
             'streams': streams,
             'chunks': list(),
             'bulk_offset': bulk_offset,
-            'bulk_size': self.file_size - bulk_offset,
-            'trailing_offset': self.file_size,
-            'trailing_size': 0,
+            'bulk_size': bulk_size,
+            'companion_bulk_path': companion_bulk_path,
+            'trailing_offset': trailing_offset,
+            'trailing_size': trailing_size,
             'warnings': warnings,
         }
 
@@ -646,14 +1025,51 @@ class ScFS(FileSystem):
         return self.parse_stream_archive()
 
     def get_resource_data(self, resource):
-        '''Return one SCG/SCW resource's stored block payloads in order. For resources containing `Rdat`, this is the exact encoded/stored representation, not a decoded resource.
+        '''Return one SCG/SCW logical resource.
+
+        Standard `Rdat` resources retain their exact encoded representation.
+        STOC-v2 `Ldat` fragments are reassembled and zlib-decompressed because
+        that catalog stores one logical resource across one or more chunks.
         '''
         if self.family != 'stream':
             raise ValueError('SCX flat chunks do not contain parsed resources')
         output = bytearray()
         for block in resource['blocks']:
             output.extend(self.read_file(block['data_offset'], block['stored_size']))
-        return bytes(output)
+
+        if resource.get('layout') != 'stoc-v2':
+            return bytes(output)
+
+        if resource['storage_mode'] == 'raw':
+            data = bytes(output)
+        elif resource['storage_mode'] == 'zlib':
+            decompressor = zlib.decompressobj()
+            try:
+                data = decompressor.decompress(bytes(output)) + decompressor.flush()
+            except zlib.error as error:
+                raise ValueError(
+                    'unable to decompress %s id 0x%X: %s'
+                    % (printable_tag(resource['type_code']), resource['resource_id'], error)
+                )
+            if not decompressor.eof or decompressor.unused_data or decompressor.unconsumed_tail:
+                raise ValueError(
+                    'compressed %s id 0x%X is not one complete zlib stream'
+                    % (printable_tag(resource['type_code']), resource['resource_id'])
+                )
+        else:
+            raise ValueError('unsupported STOC-v2 storage mode %r' % resource['storage_mode'])
+
+        if len(data) != resource['declared_expanded_size']:
+            raise ValueError(
+                'resource %s id 0x%X decoded to 0x%X bytes, expected 0x%X'
+                % (
+                    printable_tag(resource['type_code']),
+                    resource['resource_id'],
+                    len(data),
+                    resource['declared_expanded_size'],
+                )
+            )
+        return data
 
     def get_block_data(self, block):
         '''Return the exact stored payload of one `SDAT` or `Rdat` block.'''
@@ -674,6 +1090,21 @@ class ScFS(FileSystem):
         if include_header:
             return self.read_file(chunk['offset'], chunk['total_size'])
         return self.read_file(chunk['data_offset'], chunk['data_size'])
+
+    def get_companion_bulk_data(self):
+        '''Return the complete external `.sas` bulk file for a STOC-v2 archive.'''
+        if self.companion_bulk_path is None:
+            raise ValueError('this archive has no companion bulk file')
+        try:
+            data = self.companion_bulk_path.read_bytes()
+        except OSError as error:
+            raise ValueError('unable to read companion SAS %s: %s' % (self.companion_bulk_path, error))
+        if len(data) != self.bulk_size:
+            raise ValueError(
+                'companion SAS %s changed size while reading: 0x%X != 0x%X'
+                % (self.companion_bulk_path, len(data), self.bulk_size)
+            )
+        return data
 
     def get_stream_component(self, stream):
         '''Return a stable output-directory component for a stream.'''
@@ -720,7 +1151,29 @@ class ScFS(FileSystem):
                     for block in resource['blocks']:
                         block_path = resource_directory / ('%04d.%s' % (block['index'], block['kind'].lower()))
                         yield block_path, None, self.get_block_data(block)
-        if self.bulk_size and self.bulk_mode == 'file':
+        if self.companion_bulk_path is not None and self.bulk_size and self.bulk_mode == 'file':
+            bulk_root = Path('bulk')
+            yield bulk_root, None, None
+            yield (bulk_root / self.companion_bulk_path.name, None, self.get_companion_bulk_data())
+        elif self.companion_bulk_path is not None and self.bulk_size and self.bulk_mode == 'pages':
+            page_root = Path('bulk_pages')
+            yield page_root, None, None
+            try:
+                with self.companion_bulk_path.open('rb') as bulk_file:
+                    page_index = 0
+                    position = 0
+                    while position < self.bulk_size:
+                        size = min(PAGE_SIZE, self.bulk_size - position)
+                        data = bulk_file.read(size)
+                        if len(data) != size:
+                            raise ValueError('companion SAS %s was truncated while reading page %d' % (self.companion_bulk_path, page_index))
+                        page_path = page_root / ('%04d_%08x.bin' % (page_index, position))
+                        yield (page_path, None, data)
+                        page_index += 1
+                        position += size
+            except OSError as error:
+                raise ValueError('unable to read companion SAS %s: %s' % (self.companion_bulk_path, error))
+        elif self.bulk_size and self.bulk_mode == 'file':
             bulk_root = Path('bulk')
             yield bulk_root, None, None
             bulk_path = bulk_root / ('bulk_%08x.bin' % self.bulk_offset)
