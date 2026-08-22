@@ -229,7 +229,7 @@ class ScFS(FileSystem):
     def get_source_path(self):
         '''Return the source archive path when one is available.'''
         candidate = self.path
-        if candidate is None:
+        if candidate is None and hasattr(self, 'file_obj'):
             candidate = getattr(self.file_obj, 'name', None)
             if isinstance(candidate, str) and candidate.startswith('<'):
                 return None
