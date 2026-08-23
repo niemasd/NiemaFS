@@ -23,6 +23,15 @@ STOC_V2_RECORD_SIZE = 0x20
 STOC_V2_MAX_RECORDS = 1000000
 STOC_V2_RESOURCE_TAGS = {'SHOC', 'SONO'}
 STOC_V2_VARIANT = 'third-age-stoc-v2-swvr'
+THIRD_AGE_STANDALONE_SAS_VARIANT = 'third-age-standalone-companion-sas'
+THIRD_AGE_STREAM_RECORD_SIZE = 0x18
+THIRD_AGE_STREAM_GROUP_COUNT_OFFSET = 0x38
+THIRD_AGE_STREAM_GROUP_OFFSETS_OFFSET = 0x3C
+THIRD_AGE_STREAM_GROUP_DATA_OFFSET = 0x40
+THIRD_AGE_STREAM_GROUP_DATA_SIZE_OFFSET = 0x44
+THIRD_AGE_STREAM_GROUP_END_OFFSET = 0x48
+THIRD_AGE_STREAM_GROUP_COUNT_COPY_OFFSET = 0x7C
+THIRD_AGE_SAMPLE_RATE_SCALE = 32000
 FORMAT_LAYOUTS = {
     'scg': {
         'format_code': 'SCG',
@@ -229,7 +238,7 @@ class ScFS(FileSystem):
     def get_source_path(self):
         '''Return the source archive path when one is available.'''
         candidate = self.path
-        if candidate is None and hasattr(self, 'file_obj'):
+        if candidate is None:
             candidate = getattr(self.file_obj, 'name', None)
             if isinstance(candidate, str) and candidate.startswith('<'):
                 return None
@@ -266,6 +275,97 @@ class ScFS(FileSystem):
             except OSError:
                 continue
         return None
+
+    def looks_like_third_age_grouped_stream_shdr(self, data):
+        '''Return whether *data* is a validated Third Age grouped stream catalog.
+
+        Chapter SCGs put this catalog in a STOC-v2 package.  ``globscen.scg``
+        stores the same style of catalog in a standalone stream wrapper, so the
+        container shape alone is not enough to decide whether an adjacent SAS
+        belongs to the archive.
+        '''
+        if self.endian != '>' or len(data) < THIRD_AGE_STREAM_GROUP_COUNT_COPY_OFFSET + 4:
+            return False
+        try:
+            group_count = unpack('>I', data[THIRD_AGE_STREAM_GROUP_COUNT_OFFSET:THIRD_AGE_STREAM_GROUP_COUNT_OFFSET + 4])[0]
+            offsets_offset = unpack('>I', data[THIRD_AGE_STREAM_GROUP_OFFSETS_OFFSET:THIRD_AGE_STREAM_GROUP_OFFSETS_OFFSET + 4])[0]
+            group_data_offset = unpack('>I', data[THIRD_AGE_STREAM_GROUP_DATA_OFFSET:THIRD_AGE_STREAM_GROUP_DATA_OFFSET + 4])[0]
+            group_data_size = unpack('>I', data[THIRD_AGE_STREAM_GROUP_DATA_SIZE_OFFSET:THIRD_AGE_STREAM_GROUP_DATA_SIZE_OFFSET + 4])[0]
+            group_end_offset = unpack('>I', data[THIRD_AGE_STREAM_GROUP_END_OFFSET:THIRD_AGE_STREAM_GROUP_END_OFFSET + 4])[0]
+            group_count_copy = unpack('>I', data[THIRD_AGE_STREAM_GROUP_COUNT_COPY_OFFSET:THIRD_AGE_STREAM_GROUP_COUNT_COPY_OFFSET + 4])[0]
+        except (ValueError, IndexError):
+            return False
+
+        if not 1 <= group_count <= 0x1000 or group_count_copy != group_count:
+            return False
+        offsets_size = group_count * 4
+        if not 0 <= offsets_offset <= len(data) - offsets_size:
+            return False
+        if group_data_offset != offsets_offset + offsets_size:
+            return False
+        if group_end_offset != group_data_offset + group_data_size:
+            return False
+        if not group_data_offset <= group_end_offset <= len(data):
+            return False
+
+        try:
+            relative_offsets = unpack('>' + ('I' * group_count), data[offsets_offset:offsets_offset + offsets_size])
+        except (ValueError, IndexError):
+            return False
+        if not relative_offsets or relative_offsets[0] != 0:
+            return False
+        if any(next_offset <= offset for offset, next_offset in zip(relative_offsets, relative_offsets[1:])):
+            return False
+        if relative_offsets[-1] >= group_data_size:
+            return False
+
+        meaningful_records = 0
+        for group_index, relative_offset in enumerate(relative_offsets):
+            start = group_data_offset + relative_offset
+            next_relative = relative_offsets[group_index + 1] if group_index + 1 < group_count else group_data_size
+            limit = group_data_offset + next_relative
+            if start + 4 > limit:
+                return False
+            record_count, _record_type = unpack('>HH', data[start:start + 4])
+            if 4 + record_count * THIRD_AGE_STREAM_RECORD_SIZE != limit - start:
+                return False
+            for record_index in range(record_count):
+                position = start + 4 + record_index * THIRD_AGE_STREAM_RECORD_SIZE
+                fixed_rate, _unknown_04, bulk_offset, stored_size = unpack('>4I', data[position:position + 16])
+                final_padding, block_count, _flags = unpack('>3H', data[position + 16:position + 22])
+                channels = data[position + 22]
+                if stored_size == 0:
+                    if not (fixed_rate == 0 and bulk_offset == 0xFFFFFFFF and block_count == 0 and channels == 0):
+                        return False
+                    continue
+                sample_rate = (fixed_rate * THIRD_AGE_SAMPLE_RATE_SCALE + 0x8000) // 0x10000
+                if not 1000 <= sample_rate <= 384000:
+                    return False
+                if not 1 <= channels <= 8 or block_count == 0 or not 0 <= final_padding < 0x8000:
+                    return False
+                final_block_size = 0x8000 - final_padding
+                if final_block_size < 0x100:
+                    return False
+                expected_size = channels * ((block_count - 1) * 0x8000 + final_block_size)
+                if stored_size != expected_size:
+                    return False
+                meaningful_records += 1
+
+        return meaningful_records > 0
+
+    def has_third_age_grouped_stream_catalog(self, streams):
+        '''Return whether any parsed SHDR resource contains that catalog.'''
+        for stream in streams:
+            for resource in stream.get('resources', ()): 
+                if str(resource.get('type_code', '')).lower() != 'shdr':
+                    continue
+                try:
+                    data = self.get_resource_data(resource)
+                except (OSError, ValueError, zlib.error):
+                    continue
+                if self.looks_like_third_age_grouped_stream_shdr(data):
+                    return True
+        return False
 
     def looks_like_nested_stoc(self, endian, reverse_tags, offset=0):
         '''Return `True` when *offset* starts a supported nested STOC directory.'''
@@ -651,11 +751,7 @@ class ScFS(FileSystem):
             # Most STOC-v2 FILL chunks use the normal ``tag + size`` form.
             # Some Third Age archives instead place only the four-byte FILL
             # sentinel at the end of a 64 KiB page; the following chunk starts
-            # exactly at the next page boundary.  In that form, reading the
-            # next FourCC as a size produces values such as 0x53484F43
-            # (``SHOC``).  Accept either representation, as the legacy stream
-            # parser already does, while checking that the aligned destination
-            # begins with another recognized top-level chunk.
+            # exactly at the next page boundary.
             if tag == 'FILL':
                 declared = self.read_u32(position + 4) if end - position >= 8 else 0
                 declared_end = position + declared
@@ -669,12 +765,7 @@ class ScFS(FileSystem):
                             raise ValueError(
                                 'marker-only FILL at 0x%X in STOC-v2 package %r '
                                 'aligns to unknown chunk %r at 0x%X'
-                                % (
-                                    position,
-                                    entry['name'],
-                                    printable_tag(next_tag),
-                                    aligned_end,
-                                )
+                                % (position, entry['name'], printable_tag(next_tag), aligned_end)
                             )
                     next_position = aligned_end
                 else:
@@ -964,7 +1055,19 @@ class ScFS(FileSystem):
         indexed_end = max(indexed_end, toc_size)
 
         companion_bulk_path = None
-        if self.stoc_version == STOC_V2_VERSION:
+        standalone_third_age_catalog = (
+            self.stoc_version is None
+            and indexed_end == self.file_size
+            and self.has_third_age_grouped_stream_catalog(streams)
+        )
+        uses_companion_sas = (
+            self.stoc_version == STOC_V2_VERSION
+            or standalone_third_age_catalog
+        )
+        if standalone_third_age_catalog:
+            self.variant = THIRD_AGE_STANDALONE_SAS_VARIANT
+
+        if uses_companion_sas:
             companion_bulk_path = self.find_companion_sas()
             if companion_bulk_path is None:
                 bulk_offset = None
@@ -1137,7 +1240,7 @@ class ScFS(FileSystem):
         return self.read_file(chunk['data_offset'], chunk['data_size'])
 
     def get_companion_bulk_data(self):
-        '''Return the complete external `.sas` bulk file for a STOC-v2 archive.'''
+        '''Return the complete external `.sas` bulk file for a companion-SAS archive.'''
         if self.companion_bulk_path is None:
             raise ValueError('this archive has no companion bulk file')
         try:
