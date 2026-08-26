@@ -12,6 +12,7 @@ import niemafs
 
 # constants
 FORMAT_TO_CLASS = {
+    '360':  niemafs.XdvdFS,
     'GCM':  niemafs.GcmFS,
     'ISO':  niemafs.IsoFS,
     'RARC': niemafs.GcRarcFS,
@@ -20,6 +21,8 @@ FORMAT_TO_CLASS = {
     'SCX':  niemafs.ScxFS,
     'TAR':  niemafs.TarFS,
     'TGC':  niemafs.TgcFS,
+    'XBOX': niemafs.XdvdFS,
+    'XISO': niemafs.XdvdFS,
     'ZIP':  niemafs.ZipFS,
 }
 if hasattr(niemafs, 'WiiFS'):

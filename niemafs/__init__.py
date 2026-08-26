@@ -10,6 +10,7 @@ from niemafs.hfs    import HfsFS
 from niemafs.iso    import IsoFS
 from niemafs.sc     import ScgFS, ScwFS, ScxFS
 from niemafs.tar    import TarFS
+from niemafs.xbox   import XdvdFS
 from niemafs.zip    import ZipFS
 
 # build __all__
@@ -21,6 +22,7 @@ __all__ = [
     'IsoFS',                                               # iso.py
     'ScgFS', 'ScwFS', 'ScxFS',                             # sc.py
     'TarFS',                                               # tar.py
+    'XdvdFS',                                              # xbox.py
     'ZipFS',                                               # zip.py
 ]
 

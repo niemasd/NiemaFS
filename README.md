@@ -121,6 +121,14 @@ with open(target_path, 'rb') as target_file:
     fs = WiiFS(path=target_path, file_obj=target_file)
 ```
 
+### [`XdvdFS`](https://niema.net/NiemaFS/#niemafs.XdvdFS) — Microsoft Xbox / Xbox 360 DVDs
+
+```python
+from niemafs import XdvdFS
+with open(target_path, 'rb') as target_file:
+    fs = XdvdFS(path=target_path, file_obj=target_file)
+``
+
 ### [`ZipFS`](https://niema.net/NiemaFS/#niemafs.ZipFS) — ZIP Archive
 
 ```python
